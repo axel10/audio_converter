@@ -57,6 +57,34 @@ struct AndroidConvertResult {
     raw_log: Option<String>,
 }
 
+#[derive(Debug)]
+struct ConversionFailure {
+    error_message: String,
+    raw_log: Option<String>,
+}
+
+impl ConversionFailure {
+    fn new(error_message: impl Into<String>) -> Self {
+        Self {
+            error_message: error_message.into(),
+            raw_log: None,
+        }
+    }
+
+    fn with_log(error_message: impl Into<String>, raw_log: impl Into<String>) -> Self {
+        Self {
+            error_message: error_message.into(),
+            raw_log: Some(raw_log.into()),
+        }
+    }
+}
+
+impl From<String> for ConversionFailure {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AndroidConverterCapabilities {
@@ -302,6 +330,13 @@ fn output_bitrate_mode(request: &AndroidConvertRequest) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
+fn uses_lossy_bitrate_controls(format: &str) -> bool {
+    matches!(
+        output_format_key(format).as_str(),
+        "aac" | "caf" | "m4a" | "m4b" | "mp3" | "ogg" | "opus"
+    )
+}
+
 fn encoder_quality_for_bitrate(bit_rate: u32) -> Option<usize> {
     let quality = if bit_rate <= 64_000 {
         9
@@ -368,11 +403,12 @@ fn describe_audio_frame(frame: &frame::Audio) -> String {
 
 fn describe_packet(packet: &ffmpeg::Packet) -> String {
     format!(
-        "pts={} dts={} duration={} size={} stream={}",
+        "pts={} dts={} duration={} size={} sideData={} stream={}",
         format_optional_i64(packet.pts()),
         format_optional_i64(packet.dts()),
         packet.duration(),
         packet.size(),
+        packet.side_data().count(),
         packet.stream()
     )
 }
@@ -388,6 +424,8 @@ fn push_log_line(log: &mut String, line: impl AsRef<str>) {
 
 struct Transcoder {
     stream_index: usize,
+    output_stream_index: usize,
+    output_format_key: String,
     filter: filter::Graph,
     decoder: codec::decoder::Audio,
     encoder: codec::encoder::Audio,
@@ -463,18 +501,20 @@ fn build_transcoder(
     }
     encoder.set_format(sample_format);
     encoder.set_time_base((1, sample_rate as i32));
-    encoder.set_bit_rate(
-        request
-            .bit_rate
-            .map(|bit_rate| bit_rate as usize)
-            .unwrap_or_else(|| decoder.bit_rate()),
-    );
+    if uses_lossy_bitrate_controls(&output_format_key) {
+        encoder.set_bit_rate(
+            request
+                .bit_rate
+                .map(|bit_rate| bit_rate as usize)
+                .unwrap_or_else(|| decoder.bit_rate()),
+        );
 
-    if let Some(mode) = output_bitrate_mode(request) {
-        if mode == "vbr" {
-            if let Some(bit_rate) = request.bit_rate {
-                if let Some(quality) = encoder_quality_for_bitrate(bit_rate) {
-                    encoder.set_quality(quality);
+        if let Some(mode) = output_bitrate_mode(request) {
+            if mode == "vbr" {
+                if let Some(bit_rate) = request.bit_rate {
+                    if let Some(quality) = encoder_quality_for_bitrate(bit_rate) {
+                        encoder.set_quality(quality);
+                    }
                 }
             }
         }
@@ -533,6 +573,8 @@ fn build_transcoder(
 
     Ok(Transcoder {
         stream_index: input_stream.index(),
+        output_stream_index: stream.index(),
+        output_format_key,
         filter,
         decoder,
         encoder,
@@ -773,7 +815,7 @@ impl Transcoder {
         loop {
             match self.encoder.receive_packet(&mut encoded) {
                 Ok(()) => {
-                    encoded.set_stream(0);
+                    encoded.set_stream(self.output_stream_index);
                     if self.encoded_packet_logs < DEBUG_PACKET_LIMIT {
                         push_log_line(
                             &mut self.debug_log,
@@ -798,9 +840,15 @@ impl Transcoder {
                         );
                         self.encoded_packet_logs += 1;
                     }
-                    encoded
-                        .write_interleaved(octx)
-                        .map_err(|error| error.to_string())?;
+                    if self.output_format_key == "flac" {
+                        encoded
+                            .write(octx)
+                            .map_err(|error| format!("write_packet failed: {error}"))?;
+                    } else {
+                        encoded
+                            .write_interleaved(octx)
+                            .map_err(|error| format!("write_interleaved failed: {error}"))?;
+                    }
                 }
                 Err(error) if matches!(error, ffmpeg::Error::Other { errno } if errno == ffmpeg::util::error::EAGAIN) =>
                 {
@@ -809,7 +857,7 @@ impl Transcoder {
                 Err(error) if error == ffmpeg::Error::Eof => {
                     break;
                 }
-                Err(error) => return Err(error.to_string()),
+                Err(error) => return Err(format!("receive_packet failed: {error}")),
             }
         }
 
@@ -817,44 +865,137 @@ impl Transcoder {
     }
 }
 
-fn transcode_direct(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
-    ensure_ffmpeg_initialized()?;
+fn transcode_direct(
+    request: &AndroidConvertRequest,
+) -> Result<AndroidConvertResult, ConversionFailure> {
+    ensure_ffmpeg_initialized().map_err(ConversionFailure::from)?;
 
     let _ = request.allow_fallback_to_ffmpeg.unwrap_or(true);
     let _ = request.ffmpeg_path.as_deref();
     let _ = request.extra_options.as_ref();
+    let mut debug_log = String::new();
+    push_log_line(
+        &mut debug_log,
+        format!(
+            "request input={} output={} format={} sampleRate={:?} channels={:?} bitRate={:?} bitRateMode={:?}",
+            request.input_path,
+            request.output_path,
+            request.output_format,
+            request.sample_rate,
+            request.channels,
+            request.bit_rate,
+            request.bit_rate_mode
+        ),
+    );
 
     let input_path = normalize_path(&request.input_path);
     let output_path = normalize_path(&request.output_path);
     if let Some(parent) = Path::new(&output_path).parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            std::fs::create_dir_all(parent).map_err(|error| {
+                ConversionFailure::with_log(
+                    format!("failed to create output directory: {error}"),
+                    debug_log.clone(),
+                )
+            })?;
         }
     }
 
-    let mut ictx = format::input(&input_path).map_err(|error| error.to_string())?;
-    let mut octx = format::output(&output_path).map_err(|error| error.to_string())?;
-    let mut transcoder = build_transcoder(&mut ictx, &mut octx, request)?;
+    push_log_line(&mut debug_log, format!("stage=open_input path={input_path}"));
+    let mut ictx = format::input(&input_path).map_err(|error| {
+        ConversionFailure::with_log(format!("open_input failed: {error}"), debug_log.clone())
+    })?;
+    push_log_line(&mut debug_log, format!("stage=open_output path={output_path}"));
+    let mut octx = format::output(&output_path).map_err(|error| {
+        ConversionFailure::with_log(format!("open_output failed: {error}"), debug_log.clone())
+    })?;
+    push_log_line(&mut debug_log, "stage=build_transcoder");
+    let mut transcoder = build_transcoder(&mut ictx, &mut octx, request).map_err(|error| {
+        ConversionFailure::with_log(
+            format!("build_transcoder failed: {error}"),
+            debug_log.clone(),
+        )
+    })?;
 
     octx.set_metadata(ictx.metadata().to_owned());
-    octx.write_header().map_err(|error| error.to_string())?;
+    push_log_line(&mut transcoder.debug_log, "stage=write_header");
+    octx.write_header().map_err(|error| {
+        ConversionFailure::with_log(
+            format!("write_header failed: {error}"),
+            transcoder.debug_log.clone(),
+        )
+    })?;
 
     for (stream, mut packet) in ictx.packets() {
         if stream.index() == transcoder.stream_index {
             packet.rescale_ts(stream.time_base(), transcoder.decoder_time_base);
-            transcoder.send_packet_to_decoder(&packet)?;
-            transcoder.receive_and_process_decoded_frames(&mut octx)?;
+            transcoder.send_packet_to_decoder(&packet).map_err(|error| {
+                ConversionFailure::with_log(
+                    format!("send_packet_to_decoder failed: {error}"),
+                    transcoder.debug_log.clone(),
+                )
+            })?;
+            transcoder
+                .receive_and_process_decoded_frames(&mut octx)
+                .map_err(|error| {
+                    ConversionFailure::with_log(
+                        format!("receive_and_process_decoded_frames failed: {error}"),
+                        transcoder.debug_log.clone(),
+                    )
+                })?;
         }
     }
 
-    transcoder.send_eof_to_decoder()?;
-    transcoder.receive_and_process_decoded_frames(&mut octx)?;
-    transcoder.flush_filter()?;
-    transcoder.get_and_process_filtered_frames(&mut octx)?;
-    transcoder.send_eof_to_encoder()?;
-    transcoder.receive_and_process_encoded_packets(&mut octx)?;
+    transcoder.send_eof_to_decoder().map_err(|error| {
+        ConversionFailure::with_log(
+            format!("send_eof_to_decoder failed: {error}"),
+            transcoder.debug_log.clone(),
+        )
+    })?;
+    transcoder
+        .receive_and_process_decoded_frames(&mut octx)
+        .map_err(|error| {
+            ConversionFailure::with_log(
+                format!("drain_decoded_frames failed: {error}"),
+                transcoder.debug_log.clone(),
+            )
+        })?;
+    transcoder.flush_filter().map_err(|error| {
+        ConversionFailure::with_log(
+            format!("flush_filter failed: {error}"),
+            transcoder.debug_log.clone(),
+        )
+    })?;
+    transcoder
+        .get_and_process_filtered_frames(&mut octx)
+        .map_err(|error| {
+            ConversionFailure::with_log(
+                format!("process_filtered_frames failed: {error}"),
+                transcoder.debug_log.clone(),
+            )
+        })?;
+    transcoder.send_eof_to_encoder().map_err(|error| {
+        ConversionFailure::with_log(
+            format!("send_eof_to_encoder failed: {error}"),
+            transcoder.debug_log.clone(),
+        )
+    })?;
+    transcoder
+        .receive_and_process_encoded_packets(&mut octx)
+        .map_err(|error| {
+            ConversionFailure::with_log(
+                format!("drain_encoded_packets failed: {error}"),
+                transcoder.debug_log.clone(),
+            )
+        })?;
 
-    octx.write_trailer().map_err(|error| error.to_string())?;
+    push_log_line(&mut transcoder.debug_log, "stage=write_trailer");
+    octx.write_trailer().map_err(|error| {
+        ConversionFailure::with_log(
+            format!("write_trailer failed: {error}"),
+            transcoder.debug_log.clone(),
+        )
+    })?;
     let raw_log = transcoder.finish_debug_log();
 
     Ok(AndroidConvertResult {
@@ -879,9 +1020,9 @@ struct AppleM4aEncodeResult {
     stderr: Option<String>,
 }
 
-fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
+fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, ConversionFailure> {
     if let Some(message) = unsupported_output_format_error(request) {
-        return Err(message);
+        return Err(ConversionFailure::new(message));
     }
 
     if should_use_apple_m4a_encoder(request) {
@@ -904,13 +1045,15 @@ fn should_use_apple_m4a_encoder(request: &AndroidConvertRequest) -> bool {
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn transcode_apple_m4a(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
-    ensure_ffmpeg_initialized()?;
+fn transcode_apple_m4a(
+    request: &AndroidConvertRequest,
+) -> Result<AndroidConvertResult, ConversionFailure> {
+    ensure_ffmpeg_initialized().map_err(ConversionFailure::from)?;
 
     let output_path = normalize_path(&request.output_path);
     if let Some(parent) = Path::new(&output_path).parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            std::fs::create_dir_all(parent).map_err(|error| ConversionFailure::new(error.to_string()))?;
         }
     }
 
@@ -925,7 +1068,8 @@ fn transcode_apple_m4a(request: &AndroidConvertRequest) -> Result<AndroidConvert
 
         transcode_direct(&wav_request)?;
 
-        let apple_result = encode_apple_m4a(&temporary_wav_path, &output_path, request)?;
+        let apple_result = encode_apple_m4a(&temporary_wav_path, &output_path, request)
+            .map_err(ConversionFailure::from)?;
         let engine = format!("rust-ffmpeg+{}", apple_result.engine);
         let command = format!("rust-ffmpeg to WAV temp, then {}", apple_result.command);
         let raw_log = apple_m4a_raw_log(&temporary_wav_path, &apple_result);
@@ -949,7 +1093,9 @@ fn transcode_apple_m4a(request: &AndroidConvertRequest) -> Result<AndroidConvert
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-fn transcode_apple_m4a(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
+fn transcode_apple_m4a(
+    request: &AndroidConvertRequest,
+) -> Result<AndroidConvertResult, ConversionFailure> {
     let _ = request;
     unreachable!("Apple M4A encoder is only used on iOS and macOS")
 }
@@ -1152,6 +1298,7 @@ fn failure_result(
     request: &AndroidConvertRequest,
     error_code: &str,
     error_message: String,
+    raw_log: Option<String>,
 ) -> AndroidConvertResult {
     AndroidConvertResult {
         success: false,
@@ -1163,7 +1310,7 @@ fn failure_result(
         error_message: Some(error_message),
         stdout: None,
         stderr: None,
-        raw_log: None,
+        raw_log,
     }
 }
 
@@ -1177,11 +1324,16 @@ pub fn android_convert_file(request_json: String) -> String {
     let result = match serde_json::from_str::<AndroidConvertRequest>(&request_json) {
         Ok(request) => {
             if let Some(error) = unsupported_output_format_error(&request) {
-                failure_result(&request, "unsupported_format", error)
+                failure_result(&request, "unsupported_format", error, None)
             } else {
                 match transcode(&request) {
                     Ok(result) => result,
-                    Err(error) => failure_result(&request, "transcode_failed", error),
+                    Err(error) => failure_result(
+                        &request,
+                        "transcode_failed",
+                        error.error_message,
+                        error.raw_log,
+                    ),
                 }
             }
         }

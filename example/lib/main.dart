@@ -640,6 +640,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
   Widget _buildLogCard() {
     final result = _lastResult;
+    debugPrint(result?.rawLog);
     final hasResult = result != null;
     final hasLogs = _logEntries.isNotEmpty;
     if (!hasResult && !hasLogs) {
