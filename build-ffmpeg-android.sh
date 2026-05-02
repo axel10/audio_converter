@@ -232,7 +232,11 @@ configure_args=(
   --disable-ffmpeg
   --disable-avdevice
   --disable-filters
+  --enable-filter=abuffer
+  --enable-filter=abuffersink
+  --enable-filter=anull
   --enable-filter=aresample
+  --enable-filter=aformat
   --enable-small
   --enable-gpl
   --enable-pic
