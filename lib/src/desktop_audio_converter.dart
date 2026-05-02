@@ -13,7 +13,16 @@ import 'rust/api/simple.dart' as rust_api;
 class DesktopAudioConverter {
   static Future<void>? _rustInitFuture;
 
-  bool get _usesBundledRustFfmpeg => Platform.isAndroid || Platform.isIOS;
+  bool get _usesBundledRustFfmpeg =>
+      Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+
+  bool get _usesProcessLoadedRust => Platform.isIOS || Platform.isMacOS;
+
+  bool _usesAfconvertForMacOS(ConvertRequest request) {
+    return Platform.isMacOS &&
+        (request.outputFormat == AudioFormat.aac ||
+            request.outputFormat == AudioFormat.m4a);
+  }
 
   Future<void> _ensureRustInitialized() {
     if (!_usesBundledRustFfmpeg) {
@@ -22,10 +31,12 @@ class DesktopAudioConverter {
 
     _rustInitFuture ??= RustLib.init(
       forceSameCodegenVersion: false,
-      externalLibrary: Platform.isIOS
+      externalLibrary: _usesProcessLoadedRust
           ? ExternalLibrary.process(
               iKnowHowToUseIt: true,
-              debugInfo: 'for iOS Runner.debug.dylib',
+              debugInfo: Platform.isIOS
+                  ? 'for iOS Runner.debug.dylib'
+                  : 'for macOS Runner.debug.dylib',
             )
           : null,
     );
@@ -33,12 +44,12 @@ class DesktopAudioConverter {
   }
 
   Future<ConvertResult> convertFile(ConvertRequest request) async {
+    if (_usesAfconvertForMacOS(request)) {
+      return _convertWithAfconvert(request);
+    }
     if (_usesBundledRustFfmpeg) {
       await _ensureRustInitialized();
       return _convertWithRustFfmpeg(request);
-    }
-    if (Platform.isMacOS) {
-      return _convertWithAfconvert(request);
     }
     if (Platform.isWindows || Platform.isLinux) {
       return _convertWithFfmpeg(request);
@@ -55,32 +66,23 @@ class DesktopAudioConverter {
     if (_usesBundledRustFfmpeg) {
       await _ensureRustInitialized();
       final raw = await rust_api.androidGetCapabilities();
-      return ConverterCapabilities.fromMap(
+      final capabilities = ConverterCapabilities.fromMap(
         jsonDecode(raw) as Map<Object?, Object?>,
       );
-    }
-
-    if (Platform.isMacOS) {
-      return const ConverterCapabilities(
-        engine: 'afconvert',
-        supportedOutputFormats: <AudioFormat>[
-          AudioFormat.aac,
-          AudioFormat.alac,
-          AudioFormat.aiff,
-          AudioFormat.caf,
-          AudioFormat.flac,
-          AudioFormat.m4a,
-          AudioFormat.m4b,
-          AudioFormat.mp3,
-          AudioFormat.ogg,
-          AudioFormat.opus,
-          AudioFormat.wav,
-        ],
-        supportsProgress: false,
-        supportsCancellation: false,
-        requiresExternalBinary: false,
-        notes: 'Uses the system afconvert tool.',
-      );
+      if (Platform.isMacOS) {
+        return ConverterCapabilities(
+          engine: capabilities.engine,
+          supportedOutputFormats: capabilities.supportedOutputFormats,
+          supportsProgress: capabilities.supportsProgress,
+          supportsCancellation: capabilities.supportsCancellation,
+          requiresExternalBinary: capabilities.requiresExternalBinary,
+          notes: [
+            capabilities.notes,
+            'On macOS, AAC and M4A conversions still use afconvert.',
+          ].whereType<String>().join(' '),
+        );
+      }
+      return capabilities;
     }
 
     if (Platform.isWindows || Platform.isLinux) {

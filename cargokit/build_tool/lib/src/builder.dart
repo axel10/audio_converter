@@ -210,7 +210,12 @@ class RustBuilder {
     }
 
     if (target.darwinPlatform == 'macosx') {
-      return {};
+      final sdkRoot = _darwinSdkRoot(target.darwinPlatform!);
+      return {
+        'FFMPEG_DIR': _darwinFfmpegDir(),
+        'SDKROOT': sdkRoot,
+        'BINDGEN_EXTRA_CLANG_ARGS': '--sysroot=$sdkRoot',
+      };
     }
 
     final sdkRoot = _darwinSdkRoot(target.darwinPlatform!);
@@ -224,6 +229,12 @@ class RustBuilder {
 
   String _darwinFfmpegDir() {
     final manifestRoot = path.dirname(environment.manifestDir);
+    if (target.darwinPlatform == 'macosx') {
+      if (target.darwinArch == 'x86_64') {
+        return path.join(manifestRoot, 'macos', 'ffmpeg_lib', 'amd64');
+      }
+      return path.join(manifestRoot, 'macos', 'ffmpeg_lib', 'arm64');
+    }
     if (target.darwinPlatform == 'iphoneos') {
       return path.join(manifestRoot, 'ios', 'ffmpeg_lib', 'arm64');
     }
@@ -239,6 +250,7 @@ class RustBuilder {
 
   String _darwinSdkRoot(String platformName) {
     final sdk = switch (platformName) {
+      'macosx' => 'macosx',
       'iphoneos' => 'iphoneos',
       'iphonesimulator' => 'iphonesimulator',
       _ => throw BuildException('Unsupported darwin platform $platformName'),

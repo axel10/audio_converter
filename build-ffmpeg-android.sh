@@ -75,7 +75,10 @@ fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$script_dir"
-ffmpeg_root="$repo_root/ffmpeg"
+ffmpeg_root="$repo_root/FFmpeg"
+if [[ ! -d "$ffmpeg_root" && -d "$repo_root/ffmpeg" ]]; then
+  ffmpeg_root="$repo_root/ffmpeg"
+fi
 lame_root="$repo_root/lame-3.100"
 
 log() {

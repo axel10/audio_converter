@@ -35,7 +35,16 @@ class BuildPod {
       }
 
       if (target.darwinPlatform == 'macosx') {
-        return true;
+        final manifestRoot = path.dirname(Environment.manifestDir);
+        final ffmpegDir = target.darwinArch == 'x86_64'
+            ? path.join(manifestRoot, 'macos', 'ffmpeg_lib', 'amd64')
+            : path.join(manifestRoot, 'macos', 'ffmpeg_lib', 'arm64');
+        final exists = Directory(ffmpegDir).existsSync();
+        if (!exists) {
+          _log.warning(
+              'Skipping unsupported darwin target $target because $ffmpegDir does not exist');
+        }
+        return exists;
       }
 
       final manifestRoot = path.dirname(Environment.manifestDir);

@@ -19,7 +19,7 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
 
 SPEC CHECKSUMS:
-  audio_converter: 9e9fef844b11ff0179aca4490015c821b875d292
+  audio_converter: e219a10fcdb04142133147f2ef8fbf3d8c16ccb6
   file_picker: 7584aae6fa07a041af2b36a2655122d42f578c1a
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
 

@@ -582,7 +582,7 @@ pub fn android_get_capabilities() -> String {
         supports_progress: false,
         supports_cancellation: false,
         requires_external_binary: false,
-        notes: Some("Uses the bundled Android FFmpeg build through rust-ffmpeg.".to_string()),
+        notes: Some("Uses the bundled Rust/FFmpeg build through rust-ffmpeg.".to_string()),
     };
 
     serde_json::to_string(&capabilities).unwrap()
