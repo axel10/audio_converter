@@ -7,6 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+ffmpeg-next = "8.1.0"
 flutter_rust_bridge = "=2.12.0"
 
 [lints.rust]
