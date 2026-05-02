@@ -3,6 +3,9 @@
 # Run `pod lib lint audio_converter.podspec` to validate before publishing.
 #
 Pod::Spec.new do |s|
+  ffmpeg_lib_ios = '$(PROJECT_DIR)/../../ios/ffmpeg_lib/arm64/lib'
+  ffmpeg_lib_sim = '$(PROJECT_DIR)/../../ios/ffmpeg_lib/arm64-sim/lib'
+
   s.name             = 'audio_converter'
   s.version          = '0.0.1'
   s.summary          = 'A new Flutter FFI plugin project.'
@@ -23,8 +26,6 @@ A new Flutter FFI plugin project.
   s.dependency 'Flutter'
   s.platform = :ios, '11.0'
 
-  # Flutter.framework does not contain a i386 slice.
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
   s.swift_version = '5.0'
 
   s.script_phase = {
@@ -37,10 +38,35 @@ A new Flutter FFI plugin project.
     # created by this build step.
     :output_files => ["${PODS_CONFIGURATION_BUILD_DIR}/audio_converter/libaudio_converter.a"],
   }
+  ffmpeg_link_ios = [
+    "-L#{ffmpeg_lib_ios}",
+    '-lavformat',
+    '-lavfilter',
+    '-lswscale',
+    '-lavcodec',
+    '-lmp3lame',
+    '-lswresample',
+    '-lavutil',
+  ].join(' ')
+  ffmpeg_link_sim = [
+    "-L#{ffmpeg_lib_sim}",
+    '-lavformat',
+    '-lavfilter',
+    '-lswscale',
+    '-lavcodec',
+    '-lmp3lame',
+    '-lswresample',
+    '-lavutil',
+  ].join(' ')
+
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
-    # Flutter.framework does not contain a i386 slice.
-    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
-    'OTHER_LDFLAGS' => '-force_load ${PODS_CONFIGURATION_BUILD_DIR}/audio_converter/libaudio_converter.a',
+    # Flutter.framework does not contain a i386 slice, and we only ship arm64
+    # simulator FFmpeg binaries in this repo.
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386 x86_64',
+  }
+  s.user_target_xcconfig = {
+    'OTHER_LDFLAGS[sdk=iphoneos*]' => "-force_load ${PODS_CONFIGURATION_BUILD_DIR}/audio_converter/libaudio_converter.a #{ffmpeg_link_ios}",
+    'OTHER_LDFLAGS[sdk=iphonesimulator*]' => "-force_load ${PODS_CONFIGURATION_BUILD_DIR}/audio_converter/libaudio_converter.a #{ffmpeg_link_sim}",
   }
 end

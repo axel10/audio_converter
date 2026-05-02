@@ -52,6 +52,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   String? _outputPath;
   String? _savedOutputPath;
   ConvertResult? _lastResult;
+  final List<String> _logEntries = <String>[];
   String _status = 'Ready.';
   bool _loadingCapabilities = true;
   bool _isConverting = false;
@@ -71,10 +72,31 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     super.dispose();
   }
 
+  void _log(String message, {Object? error, StackTrace? stackTrace}) {
+    final buffer = StringBuffer('[audio_converter_demo] $message');
+    if (error != null) {
+      buffer.write(' | error: $error');
+    }
+    if (stackTrace != null) {
+      buffer.write('\n$stackTrace');
+    }
+
+    final logMessage = buffer.toString();
+    debugPrint(logMessage);
+
+    setState(() {
+      _logEntries.insert(0, logMessage);
+      if (_logEntries.length > 50) {
+        _logEntries.removeRange(50, _logEntries.length);
+      }
+    });
+  }
+
   Future<void> _loadCapabilities() async {
     setState(() {
       _loadingCapabilities = true;
     });
+    _log('Loading capabilities...');
 
     try {
       final capabilities = await _converter.getCapabilities();
@@ -90,13 +112,17 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         _status = 'Capabilities loaded for ${capabilities.engine}.';
         _refreshOutputPreview();
       });
-    } catch (error) {
+      _log(
+        'Capabilities loaded: engine=${capabilities.engine}, formats=${capabilities.supportedOutputFormats.map((format) => format.value).join(", ")}',
+      );
+    } catch (error, stackTrace) {
       if (!mounted) return;
       setState(() {
         _loadingCapabilities = false;
         _capabilities = null;
         _status = 'Failed to load capabilities: $error';
       });
+      _log('Failed to load capabilities', error: error, stackTrace: stackTrace);
     }
   }
 
@@ -109,6 +135,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   }
 
   Future<void> _pickInputFile() async {
+    _log('Opening input file picker...');
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: <String>[
@@ -138,6 +165,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         _status =
             'Input file selection was cancelled or the picker returned no path.';
       });
+      _log('Input file picker was cancelled or returned no path.');
       return;
     }
 
@@ -147,6 +175,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       _status = 'Input file selected.';
       _refreshOutputPreview();
     });
+    _log('Input file selected: $filePath');
   }
 
   Future<void> _pickOutputDirectory() async {
@@ -154,8 +183,10 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       return;
     }
 
+    _log('Opening output directory picker...');
     final directory = await FilePicker.getDirectoryPath();
     if (directory == null || !mounted) {
+      _log('Output directory picker was cancelled or returned no path.');
       return;
     }
 
@@ -166,6 +197,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       _status = 'Output directory selected.';
       _refreshOutputPreview();
     });
+    _log('Output directory selected: $directory');
   }
 
   void _refreshOutputPreview() {
@@ -239,6 +271,9 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       setState(() {
         _status = 'Please pick an input file and output location first.';
       });
+      _log(
+        'Conversion blocked because input file or output format is missing.',
+      );
       return;
     }
 
@@ -246,6 +281,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       setState(() {
         _status = 'Please pick an output directory first.';
       });
+      _log('Conversion blocked because output directory is missing.');
       return;
     }
 
@@ -255,6 +291,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       setState(() {
         _status = 'Output path is not ready yet.';
       });
+      _log('Conversion blocked because output path could not be resolved.');
       return;
     }
 
@@ -279,10 +316,16 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
           ? 'Converting to a temporary file, then SAF save will open...'
           : 'Converting...';
     });
+    _log(
+      'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, ffmpegPath=${request.ffmpegPath ?? "default"}',
+    );
 
     try {
       final result = await _converter.convertFile(request);
       if (!mounted) return;
+      _log(
+        'Conversion completed: success=${result.success}, engine=${result.engine}, outputPath=${result.outputPath}, errorCode=${result.errorCode}, errorMessage=${result.errorMessage}',
+      );
 
       if (!result.success) {
         setState(() {
@@ -331,12 +374,14 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
           if (savedPath == null) {
             _status =
                 'Conversion finished, but the SAF save dialog was cancelled.';
+            _log('SAF save dialog was cancelled.');
             return;
           }
           _savedOutputPath = savedPath;
           _outputPath = tempPath;
           _status = 'Converted successfully and saved via SAF.';
         });
+        _log('Converted file saved via SAF: $savedPath');
         return;
       }
 
@@ -345,13 +390,19 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         _lastResult = result;
         _status = 'Converted successfully with ${result.engine}.';
       });
-    } catch (error) {
+      _log('Conversion succeeded with engine=${result.engine}.');
+    } catch (error, stackTrace) {
       if (!mounted) return;
       setState(() {
         _isConverting = false;
         _lastResult = null;
         _status = 'Conversion threw an exception: $error';
       });
+      _log(
+        'Conversion threw an exception',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -571,11 +622,12 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
   Widget _buildLogCard() {
     final result = _lastResult;
-    if (result == null) {
+    final hasResult = result != null;
+    final hasLogs = _logEntries.isNotEmpty;
+    if (!hasResult && !hasLogs) {
       return const SizedBox.shrink();
     }
 
-    final log = result.rawLog ?? 'No log captured.';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -583,15 +635,26 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Last Result', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text('Success: ${result.success}'),
-            if (result.command != null) Text('Command: ${result.command}'),
-            if (result.errorMessage != null) ...[
+            if (hasResult) ...[
               const SizedBox(height: 8),
-              Text('Error: ${result.errorMessage}'),
+              Text('Success: ${result.success}'),
+              if (result.command != null) Text('Command: ${result.command}'),
+              if (result.errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text('Error: ${result.errorMessage}'),
+              ],
+              const SizedBox(height: 8),
+              SelectableText(result.rawLog ?? 'No log captured.'),
             ],
-            const SizedBox(height: 8),
-            SelectableText(log),
+            if (hasLogs) ...[
+              if (hasResult) const SizedBox(height: 12),
+              Text(
+                'Runtime Log',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              SelectableText(_logEntries.join('\n\n')),
+            ],
           ],
         ),
       ),

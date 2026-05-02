@@ -178,9 +178,11 @@ class RustBuilder {
   }
 
   Future<Map<String, String>> _buildEnvironment() async {
-    if (target.android == null) {
+    if (target.android == null && target.darwinPlatform == null) {
       return {};
-    } else {
+    }
+
+    if (target.android != null) {
       final sdkPath = environment.androidSdkPath;
       final ndkVersion = environment.androidNdkVersion;
       final minSdkVersion = environment.androidMinSdkVersion;
@@ -206,5 +208,46 @@ class RustBuilder {
       }
       return env.buildEnvironment();
     }
+
+    if (target.darwinPlatform == 'macosx') {
+      return {};
+    }
+
+    final sdkRoot = _darwinSdkRoot(target.darwinPlatform!);
+    return {
+      'PKG_CONFIG_ALLOW_CROSS': '1',
+      'PKG_CONFIG_PATH': path.join(_darwinFfmpegDir(), 'lib', 'pkgconfig'),
+      'SDKROOT': sdkRoot,
+      'BINDGEN_EXTRA_CLANG_ARGS': '--sysroot=$sdkRoot',
+    };
+  }
+
+  String _darwinFfmpegDir() {
+    final manifestRoot = path.dirname(environment.manifestDir);
+    if (target.darwinPlatform == 'iphoneos') {
+      return path.join(manifestRoot, 'ios', 'ffmpeg_lib', 'arm64');
+    }
+    if (target.darwinPlatform == 'iphonesimulator') {
+      if (target.darwinArch == 'x86_64') {
+        return path.join(manifestRoot, 'ios', 'ffmpeg_lib', 'x86_64');
+      }
+      return path.join(manifestRoot, 'ios', 'ffmpeg_lib', 'arm64-sim');
+    }
+    throw BuildException(
+        'Unsupported darwin platform ${target.darwinPlatform}');
+  }
+
+  String _darwinSdkRoot(String platformName) {
+    final sdk = switch (platformName) {
+      'iphoneos' => 'iphoneos',
+      'iphonesimulator' => 'iphonesimulator',
+      _ => throw BuildException('Unsupported darwin platform $platformName'),
+    };
+    final result = runCommand('xcrun', [
+      '--sdk',
+      sdk,
+      '--show-sdk-path',
+    ]);
+    return (result.stdout as String).trim();
   }
 }

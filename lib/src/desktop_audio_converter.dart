@@ -6,23 +6,34 @@ import 'models/bit_rate_mode.dart';
 import 'models/convert_request.dart';
 import 'models/convert_result.dart';
 import 'models/converter_capabilities.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'rust/frb_generated.dart';
 import 'rust/api/simple.dart' as rust_api;
 
 class DesktopAudioConverter {
   static Future<void>? _rustInitFuture;
 
+  bool get _usesBundledRustFfmpeg => Platform.isAndroid || Platform.isIOS;
+
   Future<void> _ensureRustInitialized() {
-    if (!Platform.isAndroid) {
+    if (!_usesBundledRustFfmpeg) {
       return Future<void>.value();
     }
 
-    _rustInitFuture ??= RustLib.init(forceSameCodegenVersion: false);
+    _rustInitFuture ??= RustLib.init(
+      forceSameCodegenVersion: false,
+      externalLibrary: Platform.isIOS
+          ? ExternalLibrary.process(
+              iKnowHowToUseIt: true,
+              debugInfo: 'for iOS Runner.debug.dylib',
+            )
+          : null,
+    );
     return _rustInitFuture!;
   }
 
   Future<ConvertResult> convertFile(ConvertRequest request) async {
-    if (Platform.isAndroid) {
+    if (_usesBundledRustFfmpeg) {
       await _ensureRustInitialized();
       return _convertWithRustFfmpeg(request);
     }
@@ -36,12 +47,12 @@ class DesktopAudioConverter {
       success: false,
       errorCode: 'unsupported_platform',
       errorMessage:
-          'Desktop converter is only available on macOS, Windows, and Linux.',
+          'Audio converter is only available on Android, iOS, macOS, Windows, and Linux.',
     );
   }
 
   Future<ConverterCapabilities> getCapabilities() async {
-    if (Platform.isAndroid) {
+    if (_usesBundledRustFfmpeg) {
       await _ensureRustInitialized();
       final raw = await rust_api.androidGetCapabilities();
       return ConverterCapabilities.fromMap(

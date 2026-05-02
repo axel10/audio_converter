@@ -3,6 +3,7 @@
 
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as path;
 
 import 'artifacts_provider.dart';
@@ -11,6 +12,8 @@ import 'environment.dart';
 import 'options.dart';
 import 'target.dart';
 import 'util.dart';
+
+final _log = Logger('build_pod');
 
 class BuildPod {
   BuildPod({required this.userOptions});
@@ -26,6 +29,35 @@ class BuildPod {
             "Unknown darwin target or platform: $arch, ${Environment.darwinPlatformName}");
       }
       return target;
+    }).where((target) {
+      if (target.darwinPlatform == null || target.darwinArch == null) {
+        return true;
+      }
+
+      if (target.darwinPlatform == 'macosx') {
+        return true;
+      }
+
+      final manifestRoot = path.dirname(Environment.manifestDir);
+      final ffmpegDir = switch ((target.darwinPlatform, target.darwinArch)) {
+        ('iphoneos', 'arm64') =>
+          path.join(manifestRoot, 'ios', 'ffmpeg_lib', 'arm64'),
+        ('iphonesimulator', 'arm64') =>
+          path.join(manifestRoot, 'ios', 'ffmpeg_lib', 'arm64-sim'),
+        ('iphonesimulator', 'x86_64') =>
+          path.join(manifestRoot, 'ios', 'ffmpeg_lib', 'x86_64'),
+        _ => '',
+      };
+      if (ffmpegDir.isEmpty) {
+        return false;
+      }
+
+      final exists = Directory(ffmpegDir).existsSync();
+      if (!exists) {
+        _log.warning(
+            'Skipping unsupported darwin target $target because $ffmpegDir does not exist');
+      }
+      return exists;
     }).toList();
 
     final environment = BuildEnvironment.fromEnvironment(isAndroid: false);

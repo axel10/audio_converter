@@ -100,6 +100,9 @@ for arch in "${ARCHS[@]}"; do
     RANLIB="$ranlib"
   make -j"$jobs"
   make install
+  # FFmpeg's pkg-config metadata links against libmp3lame, so install the
+  # matching static archive alongside the other iOS libraries.
+  cp -f "$lame_install_root/lib/libmp3lame.a" "$install_root/lib/libmp3lame.a"
   # 2. 编译 FFmpeg
   log "Configuring FFmpeg for $arch..."
   mkdir -p "$build_root"
