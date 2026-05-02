@@ -81,6 +81,26 @@ if [[ ! -d "$ffmpeg_root" && -d "$repo_root/ffmpeg" ]]; then
 fi
 lame_root="$repo_root/lame-3.100"
 
+find_source_dir() {
+  local name="$1"
+  local candidate
+
+  while IFS= read -r candidate; do
+    if [[ -n "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(
+    find "$repo_root" -maxdepth 1 -mindepth 1 -type d \
+      \( -name "$name" -o -name "${name}-*" -o -name "${name}_*" -o -name "*${name}*" \) \
+      -exec test -x '{}/configure' \; -print | sort
+  )
+
+  return 1
+}
+
+opus_root="$(find_source_dir opus || true)"
+
 log() {
   printf "[$(date +%H:%M:%S)] %s\n" "$*"
 }
@@ -175,6 +195,13 @@ if [[ ! -d "$lame_root" ]]; then
   exit 1
 fi
 
+if [[ -z "$opus_root" ]]; then
+  echo "Error: Opus source not found. Expected a directory like $repo_root/opus-1.5.2" >&2
+  exit 1
+fi
+
+log "Using Opus source: $opus_root"
+
 if $clean && [[ -e "$lame_build_root" ]]; then
   rm -rf "$lame_build_root"
 fi
@@ -206,6 +233,40 @@ log "Building LAME for $abi"
 make -j"$jobs"
 make install
 
+# Build Opus
+opus_build_root="$repo_root/build/opus-android-$abi"
+opus_install_root="$opus_build_root/install"
+
+if $clean && [[ -e "$opus_build_root" ]]; then
+  rm -rf "$opus_build_root"
+fi
+
+mkdir -p "$opus_build_root"
+cd "$opus_build_root"
+
+log "Configuring Opus for $abi"
+# Opus configure host
+opus_host="$tool_prefix"
+if [[ "$abi" == "armeabi-v7a" ]]; then
+  opus_host="arm-linux-androideabi"
+fi
+
+"$opus_root/configure" \
+  --prefix="$opus_install_root" \
+  --host="$opus_host" \
+  --disable-shared \
+  --enable-static \
+  --disable-extra-programs \
+  --disable-doc \
+  CC="$cc" \
+  AR="$ar" \
+  RANLIB="$ranlib" \
+  CFLAGS="-fPIC"
+
+log "Building Opus for $abi"
+make -j"$jobs"
+make install
+
 mkdir -p "$build_root" "$install_root"
 cd "$build_root"
 
@@ -223,8 +284,8 @@ configure_args=(
   --ranlib="$ranlib"
   --strip="$strip"
   --sysroot="$ndk_root/toolchains/llvm/prebuilt/$host_os/sysroot"
-  --extra-cflags="-fPIC -I$lame_install_root/include"
-  --extra-ldflags="-L$lame_install_root/lib"
+  --extra-cflags="-fPIC -I$lame_install_root/include -I$opus_install_root/include/opus"
+  --extra-ldflags="-L$lame_install_root/lib -L$opus_install_root/lib"
   
   --disable-everything
   --disable-autodetect
@@ -246,6 +307,7 @@ configure_args=(
   --enable-shared
   --disable-static
   --enable-libmp3lame
+  --enable-libopus
   
   --enable-protocol=file
   --enable-protocol=pipe
@@ -261,7 +323,7 @@ configure_args=(
   --enable-decoder=mjpeg
   --enable-decoder=mp3
   --enable-decoder=mp3float
-  --enable-decoder=opus
+  --enable-decoder=libopus
   --enable-decoder=pcm_alaw
   --enable-decoder=pcm_f32le
   --enable-decoder=pcm_f64le
@@ -273,8 +335,10 @@ configure_args=(
   --enable-encoder=aac
   --enable-encoder=flac
   --enable-encoder=mjpeg
-  --enable-encoder=opus
+  --enable-encoder=libopus
   --enable-encoder=libmp3lame
+  --enable-encoder=pcm_s16be
+  --enable-encoder=pcm_s16le
   --enable-demuxer=aac
   --enable-demuxer=flac
   --enable-demuxer=mp3
@@ -294,8 +358,7 @@ configure_args=(
   --enable-muxer=wav
 )
 
-# Note: libopus and libmp3lame are omitted here as they require external cross-compiled libs.
-# If you need them, you must build them for Android first and provide their paths.
+# Note: External libraries (libopus, libmp3lame) are now built and linked.
 
 if command -v ccache >/dev/null 2>&1; then
   export CCACHE_DIR="${CCACHE_DIR:-$repo_root/.cache/ffmpeg-android/ccache}"
@@ -309,7 +372,11 @@ if command -v ccache >/dev/null 2>&1; then
 fi
 
 log "Starting FFmpeg configure for Android $abi (API $api_level)"
-"$ffmpeg_root/configure" "${configure_args[@]}"
+
+# Ensure pkg-config can find our cross-compiled libraries
+export PKG_CONFIG_PATH="$opus_install_root/lib/pkgconfig:$lame_install_root/lib/pkgconfig"
+
+"$ffmpeg_root/configure" --pkg-config-flags="--static" "${configure_args[@]}"
 
 log "Starting make -j${jobs}"
 make -j"$jobs"
