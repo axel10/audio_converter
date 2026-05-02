@@ -138,12 +138,7 @@ class CargoKitPlugin implements Plugin<Project> {
             } catch (Exception ignored) {
                 platforms = plugin.getTargetPlatforms().collect()
             }
-
-            // Same thing addFlutterDependencies does in flutter.gradle
-            if (buildType == "debug") {
-                platforms.add("android-x86")
-                platforms.add("android-x64")
-            }
+            platforms.removeAll(["android-x86", "android-x64"])
 
             // The task name depends on plugin properties, which are not available
             // at this point

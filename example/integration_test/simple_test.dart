@@ -4,7 +4,7 @@ import 'package:audio_converter/audio_converter.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(() async => await RustLib.init());
+  setUpAll(() async => await RustLib.init(forceSameCodegenVersion: false));
   test('Can call rust function', () async {
     expect(greet(name: "Tom"), "Hello, Tom!");
   });

@@ -18,6 +18,7 @@ class AndroidEnvironment {
     required this.ndkVersion,
     required this.minSdkVersion,
     required this.targetTempDir,
+    required this.manifestDir,
     required this.target,
   });
 
@@ -50,6 +51,9 @@ class AndroidEnvironment {
 
   /// Target directory for build artifacts.
   final String targetTempDir;
+
+  /// Crate manifest directory.
+  final String manifestDir;
 
   /// Target being built.
   final Target target;
@@ -163,6 +167,7 @@ class AndroidEnvironment {
       '_CARGOKIT_NDK_LINK_TARGET': targetArg,
       '_CARGOKIT_NDK_LINK_CLANG': ccValue,
       'CARGOKIT_TOOL_TEMP_DIR': toolTempDir,
+      'FFMPEG_DIR': path.join(path.dirname(manifestDir), 'android', 'ffmpeg_lib', target.android!),
     };
   }
 

@@ -310,6 +310,10 @@ make -j"$jobs"
 log "Starting make install"
 make install
 
+jni_libs_root="$repo_root/android/src/main/jniLibs/$abi"
+mkdir -p "$jni_libs_root"
+cp -f "$install_root/lib/"*.so "$jni_libs_root/"
+
   log "Build finished for $abi. Installation at: $install_root"
 done
 

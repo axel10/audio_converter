@@ -8,3 +8,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 String greet({required String name}) =>
     RustLib.instance.api.crateApiSimpleGreet(name: name);
+
+Future<String> androidConvertFile({required String requestJson}) =>
+    RustLib.instance.api.crateApiSimpleAndroidConvertFile(requestJson: requestJson);
+
+Future<String> androidGetCapabilities() async =>
+    RustLib.instance.api.crateApiSimpleAndroidGetCapabilities();

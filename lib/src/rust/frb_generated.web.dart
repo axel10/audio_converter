@@ -72,6 +72,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 }
 
+abstract class RustLibApi extends BaseApi {
+  String crateApiSimpleGreet({required String name});
+
+  Future<void> crateApiSimpleInitApp();
+
+  Future<String> crateApiSimpleAndroidConvertFile({required String requestJson});
+
+  String crateApiSimpleAndroidGetCapabilities();
+}
+
 // Section: wire_class
 
 class RustLibWire implements BaseWire {

@@ -198,6 +198,7 @@ class RustBuilder {
         ndkVersion: ndkVersion,
         minSdkVersion: minSdkVersion,
         targetTempDir: environment.targetTempDir,
+        manifestDir: environment.manifestDir,
         target: target,
       );
       if (!env.ndkIsInstalled() && environment.javaHome != null) {

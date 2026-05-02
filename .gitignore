@@ -33,3 +33,4 @@ migrate_working_dir/
 /coverage/
 ffmpeg_lib
 lame-3.100
+android/src/main/jniLibs

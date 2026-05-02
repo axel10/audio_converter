@@ -23,7 +23,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
     RustLibApi? api,
     BaseHandler? handler,
     ExternalLibrary? externalLibrary,
-    bool forceSameCodegenVersion = true,
+    bool forceSameCodegenVersion = false,
   }) async {
     await instance.initImpl(
       api: api,
@@ -81,6 +81,12 @@ abstract class RustLibApi extends BaseApi {
   String crateApiSimpleGreet({required String name});
 
   Future<void> crateApiSimpleInitApp();
+
+  Future<String> crateApiSimpleAndroidConvertFile({
+    required String requestJson,
+  });
+
+  String crateApiSimpleAndroidGetCapabilities();
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -140,6 +146,61 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiSimpleInitAppConstMeta =>
       const TaskConstMeta(debugName: "init_app", argNames: []);
+
+  @override
+  Future<String> crateApiSimpleAndroidConvertFile({
+    required String requestJson,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(requestJson, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSimpleAndroidConvertFileConstMeta,
+        argValues: [requestJson],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSimpleAndroidConvertFileConstMeta =>
+      const TaskConstMeta(
+        debugName: "android_convert_file",
+        argNames: ["requestJson"],
+      );
+
+  @override
+  String crateApiSimpleAndroidGetCapabilities() {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSimpleAndroidGetCapabilitiesConstMeta,
+        argValues: const [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSimpleAndroidGetCapabilitiesConstMeta =>
+      const TaskConstMeta(debugName: "android_get_capabilities", argNames: []);
 
   @protected
   String dco_decode_String(dynamic raw) {

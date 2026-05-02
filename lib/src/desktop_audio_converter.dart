@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'models/audio_format.dart';
@@ -5,9 +6,26 @@ import 'models/bit_rate_mode.dart';
 import 'models/convert_request.dart';
 import 'models/convert_result.dart';
 import 'models/converter_capabilities.dart';
+import 'rust/frb_generated.dart';
+import 'rust/api/simple.dart' as rust_api;
 
 class DesktopAudioConverter {
+  static Future<void>? _rustInitFuture;
+
+  Future<void> _ensureRustInitialized() {
+    if (!Platform.isAndroid) {
+      return Future<void>.value();
+    }
+
+    _rustInitFuture ??= RustLib.init(forceSameCodegenVersion: false);
+    return _rustInitFuture!;
+  }
+
   Future<ConvertResult> convertFile(ConvertRequest request) async {
+    if (Platform.isAndroid) {
+      await _ensureRustInitialized();
+      return _convertWithRustFfmpeg(request);
+    }
     if (Platform.isMacOS) {
       return _convertWithAfconvert(request);
     }
@@ -17,11 +35,20 @@ class DesktopAudioConverter {
     return const ConvertResult(
       success: false,
       errorCode: 'unsupported_platform',
-      errorMessage: 'Desktop converter is only available on macOS, Windows, and Linux.',
+      errorMessage:
+          'Desktop converter is only available on macOS, Windows, and Linux.',
     );
   }
 
   Future<ConverterCapabilities> getCapabilities() async {
+    if (Platform.isAndroid) {
+      await _ensureRustInitialized();
+      final raw = await rust_api.androidGetCapabilities();
+      return ConverterCapabilities.fromMap(
+        jsonDecode(raw) as Map<Object?, Object?>,
+      );
+    }
+
     if (Platform.isMacOS) {
       return const ConverterCapabilities(
         engine: 'afconvert',
@@ -77,6 +104,13 @@ class DesktopAudioConverter {
     );
   }
 
+  Future<ConvertResult> _convertWithRustFfmpeg(ConvertRequest request) async {
+    final raw = await rust_api.androidConvertFile(
+      requestJson: jsonEncode(request.toMap()),
+    );
+    return ConvertResult.fromMap(jsonDecode(raw) as Map<Object?, Object?>);
+  }
+
   Future<ConvertResult> _convertWithAfconvert(ConvertRequest request) async {
     final args = <String>[
       request.inputPath,
@@ -106,44 +140,44 @@ class DesktopAudioConverter {
 
     return switch (request.outputFormat) {
       AudioFormat.aac => <String>[
-          '-f',
-          'adts',
-          '-d',
-          'aac ',
-          '-s',
-          strategy,
-          ...bitRateArgs,
-        ],
+        '-f',
+        'adts',
+        '-d',
+        'aac ',
+        '-s',
+        strategy,
+        ...bitRateArgs,
+      ],
       AudioFormat.alac => const <String>['-f', 'm4af', '-d', 'alac'],
       AudioFormat.aiff => const <String>['-f', 'AIFF', '-d', 'BEI16'],
       AudioFormat.caf => <String>[
-          '-f',
-          'caff',
-          '-d',
-          'aac ',
-          '-s',
-          strategy,
-          ...bitRateArgs,
-        ],
+        '-f',
+        'caff',
+        '-d',
+        'aac ',
+        '-s',
+        strategy,
+        ...bitRateArgs,
+      ],
       AudioFormat.flac => const <String>['-f', 'flac', '-d', 'flac'],
       AudioFormat.m4a => <String>[
-          '-f',
-          'm4af',
-          '-d',
-          'aac ',
-          '-s',
-          strategy,
-          ...bitRateArgs,
-        ],
+        '-f',
+        'm4af',
+        '-d',
+        'aac ',
+        '-s',
+        strategy,
+        ...bitRateArgs,
+      ],
       AudioFormat.m4b => <String>[
-          '-f',
-          'm4bf',
-          '-d',
-          'aac ',
-          '-s',
-          strategy,
-          ...bitRateArgs,
-        ],
+        '-f',
+        'm4bf',
+        '-d',
+        'aac ',
+        '-s',
+        strategy,
+        ...bitRateArgs,
+      ],
       AudioFormat.mp3 => const <String>['-f', 'MPG3', '-d', '.mp3'],
       AudioFormat.ogg => const <String>['-f', 'Oggf', '-d', 'vorb'],
       AudioFormat.opus => const <String>['-f', 'Oggf', '-d', 'opus'],
@@ -194,71 +228,71 @@ class DesktopAudioConverter {
         : switch (bitRateMode) {
             BitRateMode.cbr => <String>['-b:a', bitRate.toString()],
             BitRateMode.vbr => <String>[
-                '-q:a',
-                _qualityFromBitRate(bitRate).toString(),
-              ],
+              '-q:a',
+              _qualityFromBitRate(bitRate).toString(),
+            ],
           };
 
     return switch (request.outputFormat) {
       AudioFormat.aac => <String>[
-          ...args,
-          ...bitrateArgs,
-          '-c:a',
-          'aac',
-          '-f',
-          'adts'
-        ],
+        ...args,
+        ...bitrateArgs,
+        '-c:a',
+        'aac',
+        '-f',
+        'adts',
+      ],
       AudioFormat.alac => <String>[...args, '-c:a', 'alac'],
       AudioFormat.aiff => <String>[...args, '-c:a', 'pcm_s16be', '-f', 'aiff'],
       AudioFormat.caf => <String>[
-          ...args,
-          ...bitrateArgs,
-          '-c:a',
-          'aac',
-          '-f',
-          'caf'
-        ],
+        ...args,
+        ...bitrateArgs,
+        '-c:a',
+        'aac',
+        '-f',
+        'caf',
+      ],
       AudioFormat.flac => <String>[...args, '-c:a', 'flac'],
       AudioFormat.m4a => <String>[
-          ...args,
-          ...bitrateArgs,
-          '-c:a',
-          'aac',
-          '-f',
-          'ipod'
-        ],
+        ...args,
+        ...bitrateArgs,
+        '-c:a',
+        'aac',
+        '-f',
+        'ipod',
+      ],
       AudioFormat.m4b => <String>[
-          ...args,
-          ...bitrateArgs,
-          '-c:a',
-          'aac',
-          '-f',
-          'ipod'
-        ],
+        ...args,
+        ...bitrateArgs,
+        '-c:a',
+        'aac',
+        '-f',
+        'ipod',
+      ],
       AudioFormat.mp3 => <String>[
-          ...args,
-          ...bitrateArgs,
-          '-c:a',
-          'libmp3lame',
-          '-f',
-          'mp3'
-        ],
+        ...args,
+        ...bitrateArgs,
+        '-c:a',
+        'libmp3lame',
+        '-f',
+        'mp3',
+      ],
       AudioFormat.ogg => <String>[
-          ...args,
-          ...bitrateArgs,
-          '-c:a',
-          'libvorbis',
-          '-f',
-          'ogg'
-        ],
+        ...args,
+        ...bitrateArgs,
+        '-c:a',
+        'libvorbis',
+        '-f',
+        'ogg',
+      ],
       AudioFormat.opus => <String>[
-          ...args,
-          ...bitrateArgs,
-          '-c:a',
-          'libopus',
-          '-f',
-          'opus'
-        ],
+        ...args,
+        ...bitrateArgs,
+        '-c:a',
+        'libopus',
+        '-f',
+        'opus',
+      ],
       AudioFormat.wav => <String>[...args, '-c:a', 'pcm_s16le', '-f', 'wav'],
     };
   }
@@ -310,9 +344,10 @@ class DesktopAudioConverter {
   }
 
   String _formatCommand(String executable, List<String> args) {
-    return <String>[executable, ...args]
-        .map((part) => part.contains(' ') ? '"$part"' : part)
-        .join(' ');
+    return <String>[
+      executable,
+      ...args,
+    ].map((part) => part.contains(' ') ? '"$part"' : part).join(' ');
   }
 
   String _buildFailureMessage({

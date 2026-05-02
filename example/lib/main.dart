@@ -1,12 +1,12 @@
-import 'dart:io' show Platform;
+import 'dart:io';
 
 import 'package:audio_converter/audio_converter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
-import 'package:permission_handler/permission_handler.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -39,8 +39,9 @@ class AudioConverterDemoPage extends StatefulWidget {
 
 class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   late final AudioConverter _converter;
-  final TextEditingController _bitRateController =
-      TextEditingController(text: '192000');
+  final TextEditingController _bitRateController = TextEditingController(
+    text: '192000',
+  );
   final TextEditingController _ffmpegPathController = TextEditingController();
 
   ConverterCapabilities? _capabilities;
@@ -49,8 +50,8 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   String? _inputPath;
   String? _outputDirectory;
   String? _outputPath;
+  String? _savedOutputPath;
   ConvertResult? _lastResult;
-  String _permissionStatus = 'Permission not requested yet.';
   String _status = 'Ready.';
   bool _loadingCapabilities = true;
   bool _isConverting = false;
@@ -61,7 +62,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     super.initState();
     _converter = widget.converter ?? AudioConverter();
     _loadCapabilities();
-    _requestPermissionsOnStart();
   }
 
   @override
@@ -69,64 +69,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     _bitRateController.dispose();
     _ffmpegPathController.dispose();
     super.dispose();
-  }
-
-  Future<void> _requestPermissionsOnStart() async {
-    if (!Platform.isAndroid) {
-      if (!mounted) return;
-      setState(() {
-        _permissionStatus = 'No runtime storage permission is required on this platform.';
-      });
-      return;
-    }
-
-    final statuses = await Future.wait<PermissionStatus>(<Future<PermissionStatus>>[
-      Permission.storage.request(),
-      Permission.audio.request(),
-    ]);
-    if (!mounted) return;
-    setState(() {
-      _permissionStatus = _describePermissionStatus(statuses);
-    });
-  }
-
-  Future<void> _requestPermissions() async {
-    if (!Platform.isAndroid) {
-      setState(() {
-        _permissionStatus = 'No runtime storage permission is required on this platform.';
-      });
-      return;
-    }
-
-    final statuses = await Future.wait<PermissionStatus>(<Future<PermissionStatus>>[
-      Permission.storage.request(),
-      Permission.audio.request(),
-    ]);
-    if (!mounted) return;
-    setState(() {
-      _permissionStatus = _describePermissionStatus(statuses);
-    });
-  }
-
-  String _describePermissionStatus(List<PermissionStatus> statuses) {
-    final granted = statuses.any((status) => status.isGranted || status.isLimited);
-    if (granted) {
-      return 'Read/write access granted for audio files.';
-    }
-
-    if (statuses.any((status) => status.isPermanentlyDenied)) {
-      return 'Permission permanently denied. Open app settings to enable file access.';
-    }
-
-    if (statuses.any((status) => status.isRestricted)) {
-      return 'Permission is restricted on this device.';
-    }
-
-    return 'Permission denied.';
-  }
-
-  Future<void> _openAppSettings() async {
-    await openAppSettings();
   }
 
   Future<void> _loadCapabilities() async {
@@ -139,19 +81,21 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       if (!mounted) return;
       setState(() {
         _capabilities = capabilities;
-        _selectedFormat = _selectedFormat ??
+        _selectedFormat =
+            _selectedFormat ??
             (capabilities.supportedOutputFormats.isNotEmpty
                 ? capabilities.supportedOutputFormats.first
                 : AudioFormat.m4a);
         _loadingCapabilities = false;
         _status = 'Capabilities loaded for ${capabilities.engine}.';
+        _refreshOutputPreview();
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _loadingCapabilities = false;
-        _status = 'Failed to load capabilities.';
         _capabilities = null;
+        _status = 'Failed to load capabilities: $error';
       });
     }
   }
@@ -181,21 +125,35 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         'wav',
       ],
       allowMultiple: false,
+      withData: false,
     );
 
     final filePath = result?.files.single.path;
-    if (filePath == null || !mounted) {
+    if (!mounted) {
+      return;
+    }
+
+    if (filePath == null) {
+      setState(() {
+        _status =
+            'Input file selection was cancelled or the picker returned no path.';
+      });
       return;
     }
 
     setState(() {
       _inputPath = filePath;
+      _savedOutputPath = null;
       _status = 'Input file selected.';
-      _updateOutputPreview();
+      _refreshOutputPreview();
     });
   }
 
   Future<void> _pickOutputDirectory() async {
+    if (Platform.isAndroid) {
+      return;
+    }
+
     final directory = await FilePicker.getDirectoryPath();
     if (directory == null || !mounted) {
       return;
@@ -204,57 +162,41 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     setState(() {
       _outputDirectory = directory;
       _outputPath = null;
+      _savedOutputPath = null;
       _status = 'Output directory selected.';
-      _updateOutputPreview();
+      _refreshOutputPreview();
     });
   }
 
-  Future<void> _pickOutputFileSaf() async {
+  void _refreshOutputPreview() {
     final inputPath = _inputPath;
     final selectedFormat = _selectedFormat;
     if (inputPath == null || selectedFormat == null) {
-      setState(() {
-        _status = 'Pick an input file and output format first.';
-      });
-      return;
-    }
-
-    final baseName = p.basenameWithoutExtension(inputPath);
-    final suggestedFileName = '$baseName.${selectedFormat.value}';
-    final outputPath = await _converter.pickOutputFile(
-      format: selectedFormat,
-      suggestedFileName: suggestedFileName,
-    );
-    if (outputPath == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _outputPath = outputPath;
-      _status = 'Output file selected.';
-    });
-  }
-
-  void _updateOutputPreview() {
-    if (Platform.isAndroid) {
-      return;
-    }
-
-    final inputPath = _inputPath;
-    final outputDirectory = _outputDirectory;
-    final selectedFormat = _selectedFormat;
-    if (inputPath == null || outputDirectory == null || selectedFormat == null) {
       _outputPath = null;
       return;
     }
 
     final baseName = p.basenameWithoutExtension(inputPath);
+    if (Platform.isAndroid) {
+      final tempDir = Directory(
+        p.join(Directory.systemTemp.path, 'audio_converter'),
+      );
+      _outputPath = p.join(tempDir.path, '$baseName.${selectedFormat.value}');
+      return;
+    }
+
+    final outputDirectory = _outputDirectory;
+    if (outputDirectory == null) {
+      _outputPath = null;
+      return;
+    }
+
     _outputPath = p.join(outputDirectory, '$baseName.${selectedFormat.value}');
   }
 
   String? get _previewOutputPath {
     if (Platform.isAndroid) {
-      return _outputPath;
+      return _savedOutputPath ?? _outputPath;
     }
 
     final inputPath = _inputPath;
@@ -276,7 +218,8 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     }
     setState(() {
       _selectedFormat = value;
-      _updateOutputPreview();
+      _savedOutputPath = null;
+      _refreshOutputPreview();
     });
   }
 
@@ -291,15 +234,31 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
   Future<void> _convert() async {
     final inputPath = _inputPath;
-    final outputPath = _outputPath;
     final selectedFormat = _selectedFormat;
-    if (inputPath == null || outputPath == null || selectedFormat == null) {
+    if (inputPath == null || selectedFormat == null) {
       setState(() {
         _status = 'Please pick an input file and output location first.';
       });
       return;
     }
 
+    if (!Platform.isAndroid && _outputDirectory == null) {
+      setState(() {
+        _status = 'Please pick an output directory first.';
+      });
+      return;
+    }
+
+    _refreshOutputPreview();
+    final outputPath = _outputPath;
+    if (outputPath == null) {
+      setState(() {
+        _status = 'Output path is not ready yet.';
+      });
+      return;
+    }
+
+    final baseName = p.basenameWithoutExtension(inputPath);
     final bitRate = int.tryParse(_bitRateController.text.trim());
     final request = ConvertRequest(
       inputPath: inputPath,
@@ -307,27 +266,84 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       outputFormat: selectedFormat,
       bitRate: bitRate,
       bitRateMode: _bitRateMode,
-      ffmpegPath: _usingDefaultFfmpegPath
+      ffmpegPath: Platform.isAndroid || _usingDefaultFfmpegPath
           ? null
           : _ffmpegPathController.text.trim().isEmpty
-              ? null
-              : _ffmpegPathController.text.trim(),
+          ? null
+          : _ffmpegPathController.text.trim(),
     );
 
     setState(() {
       _isConverting = true;
-      _status = 'Converting...';
+      _status = Platform.isAndroid
+          ? 'Converting to a temporary file, then SAF save will open...'
+          : 'Converting...';
     });
 
     try {
       final result = await _converter.convertFile(request);
       if (!mounted) return;
+
+      if (!result.success) {
+        setState(() {
+          _isConverting = false;
+          _lastResult = result;
+          _status = 'Conversion failed. Check the log below for details.';
+        });
+        return;
+      }
+
+      if (Platform.isAndroid) {
+        final tempPath = result.outputPath ?? outputPath;
+        final tempFile = File(tempPath);
+        if (!await tempFile.exists()) {
+          setState(() {
+            _isConverting = false;
+            _lastResult = result;
+            _status =
+                'Conversion finished, but the temporary output file was not found.';
+          });
+          return;
+        }
+
+        final bytes = await tempFile.readAsBytes();
+        final suggestedFileName = '$baseName.${selectedFormat.value}';
+        final savedPath = await FilePicker.saveFile(
+          fileName: suggestedFileName,
+          type: FileType.custom,
+          allowedExtensions: <String>[selectedFormat.value],
+          bytes: bytes,
+        );
+
+        if (!mounted) {
+          return;
+        }
+
+        try {
+          await tempFile.delete();
+        } catch (_) {
+          // Best-effort cleanup only.
+        }
+
+        setState(() {
+          _isConverting = false;
+          _lastResult = result;
+          if (savedPath == null) {
+            _status =
+                'Conversion finished, but the SAF save dialog was cancelled.';
+            return;
+          }
+          _savedOutputPath = savedPath;
+          _outputPath = tempPath;
+          _status = 'Converted successfully and saved via SAF.';
+        });
+        return;
+      }
+
       setState(() {
         _isConverting = false;
         _lastResult = result;
-        _status = result.success
-            ? 'Converted successfully with ${result.engine}.'
-            : 'Conversion failed. Check the log below for details.';
+        _status = 'Converted successfully with ${result.engine}.';
       });
     } catch (error) {
       if (!mounted) return;
@@ -357,13 +373,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                   icon: const Icon(Icons.audio_file),
                   label: const Text('Choose input file'),
                 ),
-                if (Platform.isAndroid)
-                  FilledButton.icon(
-                    onPressed: _pickOutputFileSaf,
-                    icon: const Icon(Icons.save),
-                    label: const Text('Choose output file'),
-                  )
-                else
+                if (!Platform.isAndroid)
                   FilledButton.icon(
                     onPressed: _pickOutputDirectory,
                     icon: const Icon(Icons.folder_open),
@@ -376,12 +386,19 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             const SizedBox(height: 4),
             SelectableText(
               Platform.isAndroid
-                  ? 'Output file: ${_previewOutputPath ?? 'Not selected'}'
-                  : 'Output folder: ${_outputPath ?? 'Not selected'}',
+                  ? 'Android uses SAF to save after conversion.'
+                  : 'Output directory: ${_outputDirectory ?? 'Not selected'}',
             ),
             const SizedBox(height: 4),
-            if (!Platform.isAndroid)
-              SelectableText('Output file: ${_previewOutputPath ?? 'Not ready'}'),
+            SelectableText(
+              Platform.isAndroid
+                  ? 'Temporary output: ${_outputPath ?? 'Not ready'}'
+                  : 'Output file: ${_previewOutputPath ?? 'Not ready'}',
+            ),
+            if (Platform.isAndroid && _savedOutputPath != null) ...[
+              const SizedBox(height: 4),
+              SelectableText('Saved output: $_savedOutputPath'),
+            ],
           ],
         ),
       ),
@@ -443,8 +460,8 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                 border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 12),
-            if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) ...[
+            if (!Platform.isAndroid) ...[
+              const SizedBox(height: 12),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 value: _usingDefaultFfmpegPath,
@@ -456,6 +473,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                 title: const Text('Use default ffmpeg path'),
               ),
               if (!_usingDefaultFfmpegPath) ...[
+                const SizedBox(height: 12),
                 TextField(
                   controller: _ffmpegPathController,
                   decoration: const InputDecoration(
@@ -464,9 +482,9 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                     hintText: '/usr/local/bin/ffmpeg',
                   ),
                 ),
-                const SizedBox(height: 12),
               ],
             ],
+            const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _isConverting ? null : _convert,
               icon: const Icon(Icons.play_arrow),
@@ -478,32 +496,22 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     );
   }
 
-  Widget _buildPermissionCard() {
+  Widget _buildSafCard() {
+    if (!Platform.isAndroid) {
+      return const SizedBox.shrink();
+    }
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Permissions', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Text(_permissionStatus),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _requestPermissions,
-                  icon: const Icon(Icons.security),
-                  label: const Text('Request read/write access'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _openAppSettings,
-                  icon: const Icon(Icons.settings),
-                  label: const Text('Open app settings'),
-                ),
-              ],
+            Text('Android SAF', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            const Text(
+              'Android does not request broad storage permission here. '
+              'Input files are picked through SAF, and the save dialog appears after conversion.',
             ),
           ],
         ),
@@ -538,7 +546,9 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             ),
             const SizedBox(height: 8),
             Text('Engine: ${capabilities.engine}'),
-            Text('Requires external binary: ${capabilities.requiresExternalBinary}'),
+            Text(
+              'Requires external binary: ${capabilities.requiresExternalBinary}',
+            ),
             Text('Supports progress: ${capabilities.supportsProgress}'),
             Text('Supports cancellation: ${capabilities.supportsCancellation}'),
             if (capabilities.notes != null) ...[
@@ -572,10 +582,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Last Result',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text('Last Result', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text('Success: ${result.success}'),
             if (result.command != null) Text('Command: ${result.command}'),
@@ -611,7 +618,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 16),
-          _buildPermissionCard(),
+          _buildSafCard(),
           const SizedBox(height: 12),
           _buildPickerCard(),
           const SizedBox(height: 12),

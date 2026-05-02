@@ -12,6 +12,7 @@ dependencies:
     sdk: flutter
   flutter_rust_bridge: 2.12.0
   plugin_platform_interface: ^2.0.2
+  path: ^1.9.0
 
 dev_dependencies:
   ffi: ^2.1.3
@@ -42,7 +43,8 @@ flutter:
   plugin:
     platforms:
       android:
-        ffiPlugin: true
+        package: com.example.audio_converter
+        pluginClass: AudioConverterPlugin
       ios:
         ffiPlugin: true
       linux:
