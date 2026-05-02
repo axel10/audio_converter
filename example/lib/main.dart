@@ -297,17 +297,19 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
     final baseName = p.basenameWithoutExtension(inputPath);
     final bitRate = int.tryParse(_bitRateController.text.trim());
+    final ffmpegPath =
+        (Platform.isWindows || Platform.isLinux) && !_usingDefaultFfmpegPath
+        ? (_ffmpegPathController.text.trim().isEmpty
+              ? null
+              : _ffmpegPathController.text.trim())
+        : null;
     final request = ConvertRequest(
       inputPath: inputPath,
       outputPath: outputPath,
       outputFormat: selectedFormat,
       bitRate: bitRate,
       bitRateMode: _bitRateMode,
-      ffmpegPath: Platform.isAndroid || _usingDefaultFfmpegPath
-          ? null
-          : _ffmpegPathController.text.trim().isEmpty
-          ? null
-          : _ffmpegPathController.text.trim(),
+      ffmpegPath: ffmpegPath,
     );
 
     setState(() {
@@ -316,9 +318,10 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
           ? 'Converting to a temporary file, then SAF save will open...'
           : 'Converting...';
     });
-    _log(
-      'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, ffmpegPath=${request.ffmpegPath ?? "default"}',
-    );
+    final conversionLog = Platform.isMacOS
+        ? 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, engine=afconvert'
+        : 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, ffmpegPath=${request.ffmpegPath ?? "default"}';
+    _log(conversionLog);
 
     try {
       final result = await _converter.convertFile(request);
@@ -511,7 +514,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                 border: OutlineInputBorder(),
               ),
             ),
-            if (!Platform.isAndroid) ...[
+            if (Platform.isWindows || Platform.isLinux) ...[
               const SizedBox(height: 12),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
@@ -534,6 +537,13 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                   ),
                 ),
               ],
+            ] else if (Platform.isMacOS) ...[
+              const SizedBox(height: 12),
+              const ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('macOS uses afconvert'),
+                subtitle: Text('No external encoder path is needed on macOS.'),
+              ),
             ],
             const SizedBox(height: 12),
             FilledButton.icon(

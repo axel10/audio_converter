@@ -63,6 +63,7 @@ The native build systems that are invoked by FFI (and method channel) plugins ar
   * See the documentation in android/build.gradle.
 * For iOS and MacOS: Xcode, via CocoaPods.
   * See the documentation in ios/audio_converter.podspec.
+  * macOS uses the system `afconvert` tool and does not build the Rust/FFmpeg stack.
   * See the documentation in macos/audio_converter.podspec.
 * For Linux and Windows: CMake.
   * See the documentation in linux/CMakeLists.txt.
@@ -89,4 +90,3 @@ For example, see `sumAsync` in `lib/audio_converter.dart`.
 For help getting started with Flutter, view our
 [online documentation](https://docs.flutter.dev), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
-
