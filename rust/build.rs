@@ -21,4 +21,10 @@ fn main() {
         println!("cargo:rustc-link-search=native={}", lib_dir.display());
         println!("cargo:rustc-link-lib=static=mp3lame");
     }
+
+    let opus_archive = lib_dir.join("libopus.a");
+    if opus_archive.exists() {
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+        println!("cargo:rustc-link-lib=static=opus");
+    }
 }

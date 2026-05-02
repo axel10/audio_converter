@@ -43,6 +43,7 @@ A new Flutter FFI plugin project.
     '-lswscale',
     '-lavcodec',
     '-lmp3lame',
+    '-lopus',
     '-lswresample',
     '-lavutil',
   ].join(' ')
@@ -53,6 +54,7 @@ A new Flutter FFI plugin project.
     '-lswscale',
     '-lavcodec',
     '-lmp3lame',
+    '-lopus',
     '-lswresample',
     '-lavutil',
   ].join(' ')

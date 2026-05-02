@@ -102,12 +102,13 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       final capabilities = await _converter.getCapabilities();
       if (!mounted) return;
       setState(() {
+        final supportedFormats = capabilities.supportedOutputFormats;
         _capabilities = capabilities;
-        _selectedFormat =
-            _selectedFormat ??
-            (capabilities.supportedOutputFormats.isNotEmpty
-                ? capabilities.supportedOutputFormats.first
-                : AudioFormat.m4a);
+        _selectedFormat = supportedFormats.contains(_selectedFormat)
+            ? _selectedFormat
+            : (supportedFormats.isNotEmpty
+                  ? supportedFormats.first
+                  : AudioFormat.m4a);
         _loadingCapabilities = false;
         _status = 'Capabilities loaded for ${capabilities.engine}.';
         _refreshOutputPreview();
@@ -129,6 +130,11 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   List<AudioFormat> get _formatOptions {
     final capabilities = _capabilities;
     if (capabilities == null || capabilities.supportedOutputFormats.isEmpty) {
+      if (Platform.isIOS || Platform.isMacOS) {
+        return AudioFormat.values
+            .where((format) => format != AudioFormat.aac)
+            .toList(growable: false);
+      }
       return AudioFormat.values;
     }
     return capabilities.supportedOutputFormats;
@@ -318,8 +324,8 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
           ? 'Converting to a temporary file, then SAF save will open...'
           : 'Converting...';
     });
-    final conversionLog = Platform.isMacOS
-        ? 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, engine=afconvert'
+    final conversionLog = Platform.isIOS || Platform.isMacOS
+        ? 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, engine=rust-ffmpeg+Apple encoder for m4a'
         : 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, ffmpegPath=${request.ffmpegPath ?? "default"}';
     _log(conversionLog);
 
@@ -537,12 +543,14 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                   ),
                 ),
               ],
-            ] else if (Platform.isMacOS) ...[
+            ] else if (Platform.isIOS || Platform.isMacOS) ...[
               const SizedBox(height: 12),
               const ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text('macOS uses afconvert'),
-                subtitle: Text('No external encoder path is needed on macOS.'),
+                title: Text('Apple M4A encoder'),
+                subtitle: Text(
+                  'M4A uses a WAV intermediate; AAC container output is unavailable here.',
+                ),
               ),
             ],
             const SizedBox(height: 12),

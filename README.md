@@ -63,8 +63,9 @@ The native build systems that are invoked by FFI (and method channel) plugins ar
   * See the documentation in android/build.gradle.
 * For iOS and MacOS: Xcode, via CocoaPods.
   * See the documentation in ios/audio_converter.podspec.
-  * macOS now builds the bundled Rust/FFmpeg stack, but still uses `afconvert`
-    for AAC and M4A output.
+  * iOS and macOS do not expose raw AAC container output. M4A output is handled
+    by first writing a WAV intermediate with bundled Rust/FFmpeg, then using the
+    Apple audio stack for the final encode.
   * See the documentation in macos/audio_converter.podspec.
 * For Linux and Windows: CMake.
   * See the documentation in linux/CMakeLists.txt.

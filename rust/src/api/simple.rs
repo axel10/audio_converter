@@ -1,10 +1,20 @@
 use std::collections::HashMap;
+#[cfg(target_os = "ios")]
+use std::ffi::{CStr, CString};
+#[cfg(target_os = "ios")]
+use std::os::raw::{c_char, c_int, c_void};
 use std::path::Path;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+use std::path::PathBuf;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::sync::Once;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use ffmpeg_next as ffmpeg;
-use ffmpeg::{codec, filter, format, frame, media};
 use ffmpeg::codec::codec::Codec as FfmpegCodec;
+use ffmpeg::{codec, filter, format, frame, media};
+use ffmpeg_next as ffmpeg;
 use serde::{Deserialize, Serialize};
 
 static FFMPEG_INIT: Once = Once::new();
@@ -17,7 +27,7 @@ fn ensure_ffmpeg_initialized() -> Result<(), String> {
     init_result
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AndroidConvertRequest {
     input_path: String,
@@ -58,6 +68,21 @@ struct AndroidConverterCapabilities {
     notes: Option<String>,
 }
 
+#[cfg(target_os = "ios")]
+extern "C" {
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+#[cfg(target_os = "ios")]
+type AvFoundationM4aEncoder = unsafe extern "C" fn(
+    input_wav_path: *const c_char,
+    output_m4a_path: *const c_char,
+    bit_rate: u32,
+    use_vbr: c_int,
+    error_buffer: *mut c_char,
+    error_buffer_len: c_int,
+) -> c_int;
+
 #[derive(Clone, Copy)]
 struct AudioCodecSpec {
     preferred_name: &'static str,
@@ -77,6 +102,26 @@ fn normalize_path(path: &str) -> String {
 
 fn output_format_key(value: &str) -> String {
     value.trim().to_lowercase()
+}
+
+fn supports_output_format_on_current_platform(format: &str) -> bool {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    {
+        output_format_key(format) != "aac"
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    {
+        let _ = format;
+        true
+    }
+}
+
+fn unsupported_output_format_error(request: &AndroidConvertRequest) -> Option<String> {
+    if !supports_output_format_on_current_platform(&request.output_format) {
+        Some("AAC container output is not supported on iOS or macOS. Use M4A instead.".to_string())
+    } else {
+        None
+    }
 }
 
 fn codec_spec_for_format(format: &str) -> Option<AudioCodecSpec> {
@@ -128,30 +173,111 @@ fn codec_spec_for_format(format: &str) -> Option<AudioCodecSpec> {
 
 fn supported_output_formats() -> Vec<String> {
     let candidates = [
-        ("aac", AudioCodecSpec { preferred_name: "aac", fallback_id: codec::Id::AAC }),
-        ("alac", AudioCodecSpec { preferred_name: "alac", fallback_id: codec::Id::ALAC }),
-        ("aiff", AudioCodecSpec { preferred_name: "pcm_s16be", fallback_id: codec::Id::PCM_S16BE }),
-        ("caf", AudioCodecSpec { preferred_name: "aac", fallback_id: codec::Id::AAC }),
-        ("flac", AudioCodecSpec { preferred_name: "flac", fallback_id: codec::Id::FLAC }),
-        ("m4a", AudioCodecSpec { preferred_name: "aac", fallback_id: codec::Id::AAC }),
-        ("m4b", AudioCodecSpec { preferred_name: "aac", fallback_id: codec::Id::AAC }),
-        ("mp3", AudioCodecSpec { preferred_name: "libmp3lame", fallback_id: codec::Id::MP3 }),
-        ("ogg", AudioCodecSpec { preferred_name: "libvorbis", fallback_id: codec::Id::VORBIS }),
-        ("opus", AudioCodecSpec { preferred_name: "libopus", fallback_id: codec::Id::OPUS }),
-        ("wav", AudioCodecSpec { preferred_name: "pcm_s16le", fallback_id: codec::Id::PCM_S16LE }),
+        (
+            "aac",
+            AudioCodecSpec {
+                preferred_name: "aac",
+                fallback_id: codec::Id::AAC,
+            },
+        ),
+        (
+            "alac",
+            AudioCodecSpec {
+                preferred_name: "alac",
+                fallback_id: codec::Id::ALAC,
+            },
+        ),
+        (
+            "aiff",
+            AudioCodecSpec {
+                preferred_name: "pcm_s16be",
+                fallback_id: codec::Id::PCM_S16BE,
+            },
+        ),
+        (
+            "caf",
+            AudioCodecSpec {
+                preferred_name: "aac",
+                fallback_id: codec::Id::AAC,
+            },
+        ),
+        (
+            "flac",
+            AudioCodecSpec {
+                preferred_name: "flac",
+                fallback_id: codec::Id::FLAC,
+            },
+        ),
+        (
+            "m4a",
+            AudioCodecSpec {
+                preferred_name: "aac",
+                fallback_id: codec::Id::AAC,
+            },
+        ),
+        (
+            "m4b",
+            AudioCodecSpec {
+                preferred_name: "aac",
+                fallback_id: codec::Id::AAC,
+            },
+        ),
+        (
+            "mp3",
+            AudioCodecSpec {
+                preferred_name: "libmp3lame",
+                fallback_id: codec::Id::MP3,
+            },
+        ),
+        (
+            "ogg",
+            AudioCodecSpec {
+                preferred_name: "libvorbis",
+                fallback_id: codec::Id::VORBIS,
+            },
+        ),
+        (
+            "opus",
+            AudioCodecSpec {
+                preferred_name: "libopus",
+                fallback_id: codec::Id::OPUS,
+            },
+        ),
+        (
+            "wav",
+            AudioCodecSpec {
+                preferred_name: "pcm_s16le",
+                fallback_id: codec::Id::PCM_S16LE,
+            },
+        ),
     ];
 
     candidates
         .into_iter()
+        .filter(|(name, _)| supports_output_format_on_current_platform(name))
         .filter_map(|(name, spec)| spec.find().map(|_| name.to_string()))
         .collect()
 }
 
-fn output_channel_layout(channels: Option<u16>, fallback: ffmpeg::ChannelLayout) -> ffmpeg::ChannelLayout {
+fn capabilities_notes() -> String {
+    let mut notes = "Uses the bundled Rust/FFmpeg build through rust-ffmpeg.".to_string();
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    {
+        notes.push_str(" AAC container output is not supported on iOS or macOS; M4A is encoded through Apple's audio stack from a WAV intermediate.");
+    }
+    notes
+}
+
+fn output_channel_layout(
+    channels: Option<u16>,
+    fallback: ffmpeg::ChannelLayout,
+    fallback_channels: u16,
+) -> ffmpeg::ChannelLayout {
     match channels {
         Some(1) => ffmpeg::ChannelLayout::MONO,
         Some(2) => ffmpeg::ChannelLayout::STEREO,
         Some(value) => ffmpeg::ChannelLayout::default(i32::from(value)),
+        None if fallback.is_empty() => ffmpeg::ChannelLayout::default(i32::from(fallback_channels)),
         None => fallback,
     }
 }
@@ -169,7 +295,11 @@ fn output_sample_format(
 }
 
 fn output_bitrate_mode(request: &AndroidConvertRequest) -> Option<&str> {
-    request.bit_rate_mode.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    request
+        .bit_rate_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn encoder_quality_for_bitrate(bit_rate: u32) -> Option<usize> {
@@ -192,13 +322,83 @@ fn encoder_quality_for_bitrate(bit_rate: u32) -> Option<usize> {
     Some(quality)
 }
 
+const DEBUG_PACKET_LIMIT: usize = 6;
+const DEBUG_FRAME_LIMIT: usize = 6;
+const DEBUG_BYTES_LIMIT: usize = 16;
+
+fn format_optional_i64(value: Option<i64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn describe_channel_layout(layout: ffmpeg::ChannelLayout) -> String {
+    format!("0x{:x}/{}ch", layout.bits(), layout.channels())
+}
+
+fn preview_audio_bytes(frame: &frame::Audio) -> String {
+    if frame.planes() == 0 {
+        return "none".to_string();
+    }
+
+    let data = frame.data(0);
+    if data.is_empty() {
+        return "empty".to_string();
+    }
+
+    data.iter()
+        .take(DEBUG_BYTES_LIMIT)
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn describe_audio_frame(frame: &frame::Audio) -> String {
+    format!(
+        "pts={} samples={} rate={} format={} layout={} planes={} bytes[0]={}",
+        format_optional_i64(frame.pts()),
+        frame.samples(),
+        frame.rate(),
+        frame.format().name(),
+        describe_channel_layout(frame.channel_layout()),
+        frame.planes(),
+        preview_audio_bytes(frame)
+    )
+}
+
+fn describe_packet(packet: &ffmpeg::Packet) -> String {
+    format!(
+        "pts={} dts={} duration={} size={} stream={}",
+        format_optional_i64(packet.pts()),
+        format_optional_i64(packet.dts()),
+        packet.duration(),
+        packet.size(),
+        packet.stream()
+    )
+}
+
+fn codec_context_bit_rate(context: &codec::encoder::Audio) -> i64 {
+    unsafe { (*context.as_ptr()).bit_rate }
+}
+
+fn push_log_line(log: &mut String, line: impl AsRef<str>) {
+    log.push_str(line.as_ref());
+    log.push('\n');
+}
+
 struct Transcoder {
     stream_index: usize,
     filter: filter::Graph,
     decoder: codec::decoder::Audio,
     encoder: codec::encoder::Audio,
-    in_time_base: ffmpeg::Rational,
+    decoder_time_base: ffmpeg::Rational,
+    encoder_time_base: ffmpeg::Rational,
     out_time_base: ffmpeg::Rational,
+    debug_log: String,
+    input_packet_logs: usize,
+    decoded_frame_logs: usize,
+    filtered_frame_logs: usize,
+    encoded_packet_logs: usize,
 }
 
 fn build_transcoder(
@@ -224,18 +424,19 @@ fn build_transcoder(
     let output_format_key = output_format_key(&request.output_format);
     let codec_spec = codec_spec_for_format(&output_format_key)
         .ok_or_else(|| format!("unsupported output format: {}", request.output_format))?;
-    let codec = codec_spec
-        .find()
-        .ok_or_else(|| format!("encoder not available for output format: {}", request.output_format))?;
+    let codec = codec_spec.find().ok_or_else(|| {
+        format!(
+            "encoder not available for output format: {}",
+            request.output_format
+        )
+    })?;
 
     let global_header = octx
         .format()
         .flags()
         .contains(format::flag::Flags::GLOBAL_HEADER);
 
-    let mut stream = octx
-        .add_stream(codec)
-        .map_err(|error| error.to_string())?;
+    let mut stream = octx.add_stream(codec).map_err(|error| error.to_string())?;
     let context = codec::context::Context::from_parameters(stream.parameters())
         .map_err(|error| error.to_string())?;
     let mut encoder = context
@@ -244,7 +445,11 @@ fn build_transcoder(
         .map_err(|error| error.to_string())?;
 
     let sample_rate = request.sample_rate.unwrap_or_else(|| decoder.rate());
-    let channel_layout = output_channel_layout(request.channels, decoder.channel_layout());
+    let channel_layout = output_channel_layout(
+        request.channels,
+        decoder.channel_layout(),
+        decoder.channels(),
+    );
     let sample_format = output_sample_format(&codec, decoder.format());
 
     if global_header {
@@ -253,6 +458,9 @@ fn build_transcoder(
 
     encoder.set_rate(sample_rate as i32);
     encoder.set_channel_layout(channel_layout);
+    unsafe {
+        (*encoder.as_mut_ptr()).ch_layout.nb_channels = channel_layout.channels();
+    }
     encoder.set_format(sample_format);
     encoder.set_time_base((1, sample_rate as i32));
     encoder.set_bit_rate(
@@ -277,16 +485,65 @@ fn build_transcoder(
     stream.set_parameters(&encoder);
 
     let filter = build_filter_graph(&decoder, &encoder)?;
-    let in_time_base = decoder.time_base();
+    let decoder_time_base = decoder.time_base();
+    let encoder_time_base = encoder.time_base();
     let out_time_base = stream.time_base();
+    let mut debug_log = String::new();
+    push_log_line(
+        &mut debug_log,
+        format!(
+            "request input={} output={} format={} sampleRate={:?} channels={:?} bitRate={:?} bitRateMode={:?}",
+            request.input_path,
+            request.output_path,
+            request.output_format,
+            request.sample_rate,
+            request.channels,
+            request.bit_rate,
+            request.bit_rate_mode
+        ),
+    );
+    push_log_line(
+        &mut debug_log,
+        format!(
+            "decoder stream_index={} time_base={} rate={} format={} layout={} decoder_channels={} bit_rate={}",
+            input_stream.index(),
+            decoder.time_base(),
+            decoder.rate(),
+            decoder.format().name(),
+            describe_channel_layout(decoder.channel_layout()),
+            decoder.channels(),
+            decoder.bit_rate()
+        ),
+    );
+    push_log_line(
+        &mut debug_log,
+        format!(
+            "encoder codec={} time_base={} rate={} format={} layout={} frame_size={} bit_rate={}",
+            codec.name(),
+            encoder.time_base(),
+            encoder.rate(),
+            encoder.format().name(),
+            describe_channel_layout(encoder.channel_layout()),
+            encoder.frame_size(),
+            codec_context_bit_rate(&encoder)
+        ),
+    );
+    push_log_line(&mut debug_log, "filter_graph:");
+    push_log_line(&mut debug_log, filter.dump());
 
     Ok(Transcoder {
         stream_index: input_stream.index(),
         filter,
         decoder,
         encoder,
-        in_time_base,
+        decoder_time_base,
+        encoder_time_base,
         out_time_base,
+        debug_log,
+        input_packet_logs: 0,
+        decoded_frame_logs: 0,
+        filtered_frame_logs: 0,
+        encoded_packet_logs: 0,
     })
 }
 
@@ -294,24 +551,40 @@ fn build_filter_graph(
     decoder: &codec::decoder::Audio,
     encoder: &codec::encoder::Audio,
 ) -> Result<filter::Graph, String> {
+    let decoder_channel_layout = if decoder.channel_layout().is_empty() {
+        ffmpeg::ChannelLayout::default(i32::from(decoder.channels()))
+    } else {
+        decoder.channel_layout()
+    };
     let mut graph = filter::Graph::new();
     let args = format!(
         "time_base={}:sample_rate={}:sample_fmt={}:channel_layout=0x{:x}",
         decoder.time_base(),
         decoder.rate(),
         decoder.format().name(),
-        decoder.channel_layout().bits()
+        decoder_channel_layout.bits()
     );
 
     graph
-        .add(&filter::find("abuffer").ok_or_else(|| "abuffer filter not available".to_string())?, "in", &args)
+        .add(
+            &filter::find("abuffer").ok_or_else(|| "abuffer filter not available".to_string())?,
+            "in",
+            &args,
+        )
         .map_err(|error| error.to_string())?;
     graph
-        .add(&filter::find("abuffersink").ok_or_else(|| "abuffersink filter not available".to_string())?, "out", "")
+        .add(
+            &filter::find("abuffersink")
+                .ok_or_else(|| "abuffersink filter not available".to_string())?,
+            "out",
+            "",
+        )
         .map_err(|error| error.to_string())?;
 
     {
-        let mut output = graph.get("out").ok_or_else(|| "missing filter sink".to_string())?;
+        let mut output = graph
+            .get("out")
+            .ok_or_else(|| "missing filter sink".to_string())?;
         output.set_sample_format(encoder.format());
         output.set_channel_layout(encoder.channel_layout());
         output.set_sample_rate(encoder.rate());
@@ -322,7 +595,12 @@ fn build_filter_graph(
         .map_err(|error| error.to_string())?
         .input("out", 0)
         .map_err(|error| error.to_string())?
-        .parse("anull")
+        .parse(&format!(
+            "aformat=sample_fmts={}:sample_rates={}:channel_layouts=0x{:x}",
+            encoder.format().name(),
+            encoder.rate(),
+            encoder.channel_layout().bits()
+        ))
         .map_err(|error| error.to_string())?;
     graph.validate().map_err(|error| error.to_string())?;
 
@@ -343,7 +621,33 @@ fn build_filter_graph(
 }
 
 impl Transcoder {
+    fn finish_debug_log(mut self) -> String {
+        push_log_line(
+            &mut self.debug_log,
+            format!(
+                "summary inputPacketsLogged={} decodedFramesLogged={} filteredFramesLogged={} encodedPacketsLogged={}",
+                self.input_packet_logs,
+                self.decoded_frame_logs,
+                self.filtered_frame_logs,
+                self.encoded_packet_logs
+            ),
+        );
+        self.debug_log
+    }
+
     fn send_packet_to_decoder(&mut self, packet: &ffmpeg::Packet) -> Result<(), String> {
+        if self.input_packet_logs < DEBUG_PACKET_LIMIT {
+            push_log_line(
+                &mut self.debug_log,
+                format!(
+                    "input_packet[{}] tb={} {}",
+                    self.input_packet_logs,
+                    self.decoder_time_base,
+                    describe_packet(packet)
+                ),
+            );
+            self.input_packet_logs += 1;
+        }
         self.decoder
             .send_packet(packet)
             .map_err(|error| error.to_string())
@@ -367,10 +671,22 @@ impl Transcoder {
                 Ok(()) => {
                     let timestamp = decoded.timestamp();
                     decoded.set_pts(timestamp);
+                    if self.decoded_frame_logs < DEBUG_FRAME_LIMIT {
+                        push_log_line(
+                            &mut self.debug_log,
+                            format!(
+                                "decoded_frame[{}] {}",
+                                self.decoded_frame_logs,
+                                describe_audio_frame(&decoded)
+                            ),
+                        );
+                        self.decoded_frame_logs += 1;
+                    }
                     self.add_frame_to_filter(&decoded)?;
                     self.get_and_process_filtered_frames(octx)?;
                 }
-                Err(error) if matches!(error, ffmpeg::Error::Other { errno } if errno == ffmpeg::util::error::EAGAIN) => {
+                Err(error) if matches!(error, ffmpeg::Error::Other { errno } if errno == ffmpeg::util::error::EAGAIN) =>
+                {
                     break;
                 }
                 Err(error) if error == ffmpeg::Error::Eof => {
@@ -415,10 +731,22 @@ impl Transcoder {
                 .frame(&mut filtered)
             {
                 Ok(()) => {
+                    if self.filtered_frame_logs < DEBUG_FRAME_LIMIT {
+                        push_log_line(
+                            &mut self.debug_log,
+                            format!(
+                                "filtered_frame[{}] {}",
+                                self.filtered_frame_logs,
+                                describe_audio_frame(&filtered)
+                            ),
+                        );
+                        self.filtered_frame_logs += 1;
+                    }
                     self.send_frame_to_encoder(&filtered)?;
                     self.receive_and_process_encoded_packets(octx)?;
                 }
-                Err(error) if matches!(error, ffmpeg::Error::Other { errno } if errno == ffmpeg::util::error::EAGAIN) => {
+                Err(error) if matches!(error, ffmpeg::Error::Other { errno } if errno == ffmpeg::util::error::EAGAIN) =>
+                {
                     break;
                 }
                 Err(error) if error == ffmpeg::Error::Eof => {
@@ -446,12 +774,36 @@ impl Transcoder {
             match self.encoder.receive_packet(&mut encoded) {
                 Ok(()) => {
                     encoded.set_stream(0);
-                    encoded.rescale_ts(self.in_time_base, self.out_time_base);
+                    if self.encoded_packet_logs < DEBUG_PACKET_LIMIT {
+                        push_log_line(
+                            &mut self.debug_log,
+                            format!(
+                                "encoded_packet_before_rescale[{}] tb={} {}",
+                                self.encoded_packet_logs,
+                                self.encoder_time_base,
+                                describe_packet(&encoded)
+                            ),
+                        );
+                    }
+                    encoded.rescale_ts(self.encoder_time_base, self.out_time_base);
+                    if self.encoded_packet_logs < DEBUG_PACKET_LIMIT {
+                        push_log_line(
+                            &mut self.debug_log,
+                            format!(
+                                "encoded_packet_after_rescale[{}] tb={} {}",
+                                self.encoded_packet_logs,
+                                self.out_time_base,
+                                describe_packet(&encoded)
+                            ),
+                        );
+                        self.encoded_packet_logs += 1;
+                    }
                     encoded
                         .write_interleaved(octx)
                         .map_err(|error| error.to_string())?;
                 }
-                Err(error) if matches!(error, ffmpeg::Error::Other { errno } if errno == ffmpeg::util::error::EAGAIN) => {
+                Err(error) if matches!(error, ffmpeg::Error::Other { errno } if errno == ffmpeg::util::error::EAGAIN) =>
+                {
                     break;
                 }
                 Err(error) if error == ffmpeg::Error::Eof => {
@@ -465,7 +817,7 @@ impl Transcoder {
     }
 }
 
-fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
+fn transcode_direct(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
     ensure_ffmpeg_initialized()?;
 
     let _ = request.allow_fallback_to_ffmpeg.unwrap_or(true);
@@ -489,7 +841,7 @@ fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, St
 
     for (stream, mut packet) in ictx.packets() {
         if stream.index() == transcoder.stream_index {
-            packet.rescale_ts(stream.time_base(), transcoder.in_time_base);
+            packet.rescale_ts(stream.time_base(), transcoder.decoder_time_base);
             transcoder.send_packet_to_decoder(&packet)?;
             transcoder.receive_and_process_decoded_frames(&mut octx)?;
         }
@@ -503,6 +855,7 @@ fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, St
     transcoder.receive_and_process_encoded_packets(&mut octx)?;
 
     octx.write_trailer().map_err(|error| error.to_string())?;
+    let raw_log = transcoder.finish_debug_log();
 
     Ok(AndroidConvertResult {
         success: true,
@@ -514,7 +867,284 @@ fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, St
         error_message: None,
         stdout: None,
         stderr: None,
-        raw_log: None,
+        raw_log: Some(raw_log),
+    })
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+struct AppleM4aEncodeResult {
+    engine: String,
+    command: String,
+    stdout: Option<String>,
+    stderr: Option<String>,
+}
+
+fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
+    if let Some(message) = unsupported_output_format_error(request) {
+        return Err(message);
+    }
+
+    if should_use_apple_m4a_encoder(request) {
+        return transcode_apple_m4a(request);
+    }
+
+    transcode_direct(request)
+}
+
+fn should_use_apple_m4a_encoder(request: &AndroidConvertRequest) -> bool {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    {
+        output_format_key(&request.output_format) == "m4a"
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    {
+        let _ = request;
+        false
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn transcode_apple_m4a(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
+    ensure_ffmpeg_initialized()?;
+
+    let output_path = normalize_path(&request.output_path);
+    if let Some(parent) = Path::new(&output_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+    }
+
+    let temporary_wav_path = temporary_wav_path();
+    let temporary_wav_path = temporary_wav_path.to_string_lossy().into_owned();
+    let result = (|| {
+        let mut wav_request = request.clone();
+        wav_request.output_path = temporary_wav_path.clone();
+        wav_request.output_format = "wav".to_string();
+        wav_request.bit_rate = None;
+        wav_request.bit_rate_mode = None;
+
+        transcode_direct(&wav_request)?;
+
+        let apple_result = encode_apple_m4a(&temporary_wav_path, &output_path, request)?;
+        let engine = format!("rust-ffmpeg+{}", apple_result.engine);
+        let command = format!("rust-ffmpeg to WAV temp, then {}", apple_result.command);
+        let raw_log = apple_m4a_raw_log(&temporary_wav_path, &apple_result);
+
+        Ok(AndroidConvertResult {
+            success: true,
+            command: Some(command),
+            output_path: Some(output_path),
+            engine: Some(engine),
+            output_format: Some("m4a".to_string()),
+            error_code: None,
+            error_message: None,
+            stdout: apple_result.stdout,
+            stderr: apple_result.stderr,
+            raw_log: Some(raw_log),
+        })
+    })();
+
+    let _ = std::fs::remove_file(&temporary_wav_path);
+    result
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "macos")))]
+fn transcode_apple_m4a(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, String> {
+    let _ = request;
+    unreachable!("Apple M4A encoder is only used on iOS and macOS")
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn temporary_wav_path() -> PathBuf {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    std::env::temp_dir().join(format!(
+        "audio_converter_{}_{}.wav",
+        std::process::id(),
+        timestamp
+    ))
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn apple_m4a_raw_log(wav_path: &str, result: &AppleM4aEncodeResult) -> String {
+    let mut buffer = String::new();
+    buffer.push_str("rustFfmpegIntermediate: ");
+    buffer.push_str(wav_path);
+    buffer.push('\n');
+    buffer.push_str("appleEncoderCommand: ");
+    buffer.push_str(&result.command);
+
+    if let Some(stdout) = result.stdout.as_deref().filter(|value| !value.is_empty()) {
+        buffer.push_str("\nstdout:\n");
+        buffer.push_str(stdout);
+    }
+    if let Some(stderr) = result.stderr.as_deref().filter(|value| !value.is_empty()) {
+        buffer.push_str("\nstderr:\n");
+        buffer.push_str(stderr);
+    }
+
+    buffer
+}
+
+#[cfg(target_os = "macos")]
+fn encode_apple_m4a(
+    input_wav_path: &str,
+    output_m4a_path: &str,
+    request: &AndroidConvertRequest,
+) -> Result<AppleM4aEncodeResult, String> {
+    let _ = std::fs::remove_file(output_m4a_path);
+
+    let executable = if Path::new("/usr/bin/afconvert").exists() {
+        "/usr/bin/afconvert"
+    } else {
+        "afconvert"
+    };
+    let args = afconvert_m4a_args(input_wav_path, output_m4a_path, request);
+    let output = Command::new(executable)
+        .args(&args)
+        .output()
+        .map_err(|error| format!("failed to launch afconvert: {error}"))?;
+
+    let stdout = process_output_text(&output.stdout);
+    let stderr = process_output_text(&output.stderr);
+    if !output.status.success() {
+        return Err(format!(
+            "afconvert failed with exit code {}.{}{}",
+            output.status.code().unwrap_or(-1),
+            stderr
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("\nstderr:\n{value}"))
+                .unwrap_or_default(),
+            stdout
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("\nstdout:\n{value}"))
+                .unwrap_or_default(),
+        ));
+    }
+
+    Ok(AppleM4aEncodeResult {
+        engine: "afconvert".to_string(),
+        command: format_command(executable, &args),
+        stdout,
+        stderr,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn afconvert_m4a_args(
+    input_wav_path: &str,
+    output_m4a_path: &str,
+    request: &AndroidConvertRequest,
+) -> Vec<String> {
+    let strategy = if output_bitrate_mode(request) == Some("vbr") {
+        "3"
+    } else {
+        "0"
+    };
+    let mut args = vec![
+        input_wav_path.to_string(),
+        output_m4a_path.to_string(),
+        "-f".to_string(),
+        "m4af".to_string(),
+        "-d".to_string(),
+        "aac ".to_string(),
+        "-s".to_string(),
+        strategy.to_string(),
+    ];
+    if let Some(bit_rate) = request.bit_rate {
+        args.push("-b".to_string());
+        args.push(bit_rate.to_string());
+    }
+    args
+}
+
+#[cfg(target_os = "macos")]
+fn process_output_text(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn format_command(executable: &str, args: &[String]) -> String {
+    std::iter::once(executable.to_string())
+        .chain(args.iter().cloned())
+        .map(|part| {
+            if part.contains(' ') {
+                format!("\"{part}\"")
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(target_os = "ios")]
+fn resolve_avfoundation_m4a_encoder() -> Result<AvFoundationM4aEncoder, String> {
+    let symbol = CString::new("audio_converter_encode_m4a_with_avfoundation")
+        .map_err(|_| "invalid AVFoundation encoder symbol name".to_string())?;
+    let pointer = unsafe { dlsym((-2isize) as *mut c_void, symbol.as_ptr()) };
+    if pointer.is_null() {
+        return Err("AVFoundation M4A encoder symbol was not found in the process.".to_string());
+    }
+
+    Ok(unsafe { std::mem::transmute::<*mut c_void, AvFoundationM4aEncoder>(pointer) })
+}
+
+#[cfg(target_os = "ios")]
+fn encode_apple_m4a(
+    input_wav_path: &str,
+    output_m4a_path: &str,
+    request: &AndroidConvertRequest,
+) -> Result<AppleM4aEncodeResult, String> {
+    let _ = std::fs::remove_file(output_m4a_path);
+
+    let input_wav_path = CString::new(input_wav_path)
+        .map_err(|_| "input path contains an interior NUL byte".to_string())?;
+    let output_m4a_path = CString::new(output_m4a_path)
+        .map_err(|_| "output path contains an interior NUL byte".to_string())?;
+    let encoder = resolve_avfoundation_m4a_encoder()?;
+    let mut error_buffer = vec![0 as c_char; 4096];
+    let result = unsafe {
+        encoder(
+            input_wav_path.as_ptr(),
+            output_m4a_path.as_ptr(),
+            request.bit_rate.unwrap_or(0),
+            if output_bitrate_mode(request) == Some("vbr") {
+                1
+            } else {
+                0
+            },
+            error_buffer.as_mut_ptr(),
+            error_buffer.len() as c_int,
+        )
+    };
+
+    if result != 0 {
+        let error_message = unsafe { CStr::from_ptr(error_buffer.as_ptr()) }
+            .to_string_lossy()
+            .trim()
+            .to_string();
+        return Err(if error_message.is_empty() {
+            format!("AVFoundation M4A encode failed with code {result}")
+        } else {
+            format!("AVFoundation M4A encode failed with code {result}: {error_message}")
+        });
+    }
+
+    Ok(AppleM4aEncodeResult {
+        engine: "avfoundation".to_string(),
+        command: "AVFoundation M4A encode".to_string(),
+        stdout: None,
+        stderr: None,
     })
 }
 
@@ -545,10 +1175,16 @@ pub fn greet(name: String) -> String {
 #[flutter_rust_bridge::frb]
 pub fn android_convert_file(request_json: String) -> String {
     let result = match serde_json::from_str::<AndroidConvertRequest>(&request_json) {
-        Ok(request) => match transcode(&request) {
-            Ok(result) => result,
-            Err(error) => failure_result(&request, "transcode_failed", error),
-        },
+        Ok(request) => {
+            if let Some(error) = unsupported_output_format_error(&request) {
+                failure_result(&request, "unsupported_format", error)
+            } else {
+                match transcode(&request) {
+                    Ok(result) => result,
+                    Err(error) => failure_result(&request, "transcode_failed", error),
+                }
+            }
+        }
         Err(error) => AndroidConvertResult {
             success: false,
             command: None,
@@ -582,7 +1218,7 @@ pub fn android_get_capabilities() -> String {
         supports_progress: false,
         supports_cancellation: false,
         requires_external_binary: false,
-        notes: Some("Uses the bundled Rust/FFmpeg build through rust-ffmpeg.".to_string()),
+        notes: Some(capabilities_notes()),
     };
 
     serde_json::to_string(&capabilities).unwrap()

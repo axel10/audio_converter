@@ -24,6 +24,7 @@ A new Flutter FFI plugin project.
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
+  s.frameworks = 'AVFoundation', 'AudioToolbox'
   s.platform = :ios, '11.0'
 
   s.swift_version = '5.0'
@@ -45,6 +46,7 @@ A new Flutter FFI plugin project.
     '-lswscale',
     '-lavcodec',
     '-lmp3lame',
+    '-lopus',
     '-lswresample',
     '-lavutil',
   ].join(' ')
@@ -55,6 +57,7 @@ A new Flutter FFI plugin project.
     '-lswscale',
     '-lavcodec',
     '-lmp3lame',
+    '-lopus',
     '-lswresample',
     '-lavutil',
   ].join(' ')

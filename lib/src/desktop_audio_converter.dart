@@ -18,12 +18,6 @@ class DesktopAudioConverter {
 
   bool get _usesProcessLoadedRust => Platform.isIOS || Platform.isMacOS;
 
-  bool _usesAfconvertForMacOS(ConvertRequest request) {
-    return Platform.isMacOS &&
-        (request.outputFormat == AudioFormat.aac ||
-            request.outputFormat == AudioFormat.m4a);
-  }
-
   Future<void> _ensureRustInitialized() {
     if (!_usesBundledRustFfmpeg) {
       return Future<void>.value();
@@ -44,9 +38,6 @@ class DesktopAudioConverter {
   }
 
   Future<ConvertResult> convertFile(ConvertRequest request) async {
-    if (_usesAfconvertForMacOS(request)) {
-      return _convertWithAfconvert(request);
-    }
     if (_usesBundledRustFfmpeg) {
       await _ensureRustInitialized();
       return _convertWithRustFfmpeg(request);
@@ -69,19 +60,6 @@ class DesktopAudioConverter {
       final capabilities = ConverterCapabilities.fromMap(
         jsonDecode(raw) as Map<Object?, Object?>,
       );
-      if (Platform.isMacOS) {
-        return ConverterCapabilities(
-          engine: capabilities.engine,
-          supportedOutputFormats: capabilities.supportedOutputFormats,
-          supportsProgress: capabilities.supportsProgress,
-          supportsCancellation: capabilities.supportsCancellation,
-          requiresExternalBinary: capabilities.requiresExternalBinary,
-          notes: [
-            capabilities.notes,
-            'On macOS, AAC and M4A conversions still use afconvert.',
-          ].whereType<String>().join(' '),
-        );
-      }
       return capabilities;
     }
 
@@ -122,80 +100,6 @@ class DesktopAudioConverter {
       requestJson: jsonEncode(request.toMap()),
     );
     return ConvertResult.fromMap(jsonDecode(raw) as Map<Object?, Object?>);
-  }
-
-  Future<ConvertResult> _convertWithAfconvert(ConvertRequest request) async {
-    final args = <String>[
-      request.inputPath,
-      request.outputPath,
-      ..._afconvertArgs(request),
-    ];
-
-    final processResult = await Process.run(
-      'afconvert',
-      args,
-      runInShell: false,
-    );
-
-    return _resultFromProcess(
-      processResult,
-      engine: 'afconvert',
-      request: request,
-      command: _formatCommand('afconvert', args),
-    );
-  }
-
-  List<String> _afconvertArgs(ConvertRequest request) {
-    final strategy = request.bitRateMode == BitRateMode.vbr ? '3' : '0';
-    final bitRateArgs = request.bitRate == null
-        ? const <String>[]
-        : <String>['-b', request.bitRate!.toString()];
-
-    return switch (request.outputFormat) {
-      AudioFormat.aac => <String>[
-        '-f',
-        'adts',
-        '-d',
-        'aac ',
-        '-s',
-        strategy,
-        ...bitRateArgs,
-      ],
-      AudioFormat.alac => const <String>['-f', 'm4af', '-d', 'alac'],
-      AudioFormat.aiff => const <String>['-f', 'AIFF', '-d', 'BEI16'],
-      AudioFormat.caf => <String>[
-        '-f',
-        'caff',
-        '-d',
-        'aac ',
-        '-s',
-        strategy,
-        ...bitRateArgs,
-      ],
-      AudioFormat.flac => const <String>['-f', 'flac', '-d', 'flac'],
-      AudioFormat.m4a => <String>[
-        '-f',
-        'm4af',
-        '-d',
-        'aac ',
-        '-s',
-        strategy,
-        ...bitRateArgs,
-      ],
-      AudioFormat.m4b => <String>[
-        '-f',
-        'm4bf',
-        '-d',
-        'aac ',
-        '-s',
-        strategy,
-        ...bitRateArgs,
-      ],
-      AudioFormat.mp3 => const <String>['-f', 'MPG3', '-d', '.mp3'],
-      AudioFormat.ogg => const <String>['-f', 'Oggf', '-d', 'vorb'],
-      AudioFormat.opus => const <String>['-f', 'Oggf', '-d', 'opus'],
-      AudioFormat.wav => const <String>['-f', 'WAVE', '-d', 'LEI16'],
-    };
   }
 
   Future<ConvertResult> _convertWithFfmpeg(ConvertRequest request) async {
