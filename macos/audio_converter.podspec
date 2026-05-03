@@ -30,7 +30,7 @@ A new Flutter FFI plugin project.
 
   s.script_phase = {
     :name => 'Build Rust library',
-    :script => 'bash "$PODS_TARGET_SRCROOT/../build-ffmpeg-macos.sh" --arch "$ARCHS" && sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust audio_converter',
+    :script => 'bash "$PODS_TARGET_SRCROOT/../tooling/ensure_ffmpeg_assets.sh" macos $ARCHS && sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust audio_converter',
     :execution_position => :before_compile,
     :input_files => ['${BUILT_PRODUCTS_DIR}/cargokit_phony'],
     :output_files => ["${PODS_CONFIGURATION_BUILD_DIR}/audio_converter/libaudio_converter.a"],

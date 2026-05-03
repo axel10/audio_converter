@@ -54,3 +54,63 @@ cargokit {
     manifestDir = "../rust"
     libname = "audio_converter"
 }
+
+def ffmpegReleaseBaseUrl = (System.getenv('AUDIO_CONVERTER_FFMPEG_RELEASE_BASE_URL')
+        ?: 'https://github.com/axel10/audio_converter/releases/latest/download').replaceAll('/+$', '')
+def pluginRootDir = file('..')
+def ffmpegAssetNamesByAbi = [
+        'arm64-v8a': 'audio_converter-ffmpeg-android-arm64-v8a.zip',
+        'armeabi-v7a': 'audio_converter-ffmpeg-android-armeabi-v7a.zip',
+        'x86': 'audio_converter-ffmpeg-android-x86.zip',
+        'x86_64': 'audio_converter-ffmpeg-android-x86_64.zip',
+]
+def ffmpegMarkerFilesByAbi = [
+        'arm64-v8a': new File(pluginRootDir, 'android/ffmpeg_lib/arm64-v8a/lib/libavformat.so'),
+        'armeabi-v7a': new File(pluginRootDir, 'android/ffmpeg_lib/armeabi-v7a/lib/libavformat.so'),
+        'x86': new File(pluginRootDir, 'android/ffmpeg_lib/x86/lib/libavformat.so'),
+        'x86_64': new File(pluginRootDir, 'android/ffmpeg_lib/x86_64/lib/libavformat.so'),
+]
+
+tasks.register('ensureFfmpegAssets') {
+    doLast {
+        ffmpegMarkerFilesByAbi.each { abi, marker ->
+            if (marker.exists()) {
+                logger.lifecycle("ffmpeg assets already present for ${abi}")
+                return
+            }
+
+            def assetName = ffmpegAssetNamesByAbi[abi]
+            if (assetName == null) {
+                throw new GradleException("Unsupported Android ABI for ffmpeg assets: ${abi}")
+            }
+
+            def assetUrl = new URL("${ffmpegReleaseBaseUrl}/${assetName}")
+            def tempDir = new File(buildDir, '.ffmpeg-assets')
+            tempDir.mkdirs()
+            def tempZip = new File(tempDir, assetName)
+
+            logger.lifecycle("Downloading ${assetName} from ${assetUrl}")
+            assetUrl.withInputStream { input ->
+                tempZip.withOutputStream { output ->
+                    output << input
+                }
+            }
+
+            logger.lifecycle("Unpacking ${assetName} into ${pluginRootDir}")
+            copy {
+                from zipTree(tempZip)
+                into pluginRootDir
+            }
+
+            if (!marker.exists()) {
+                throw new GradleException("Failed to unpack expected ffmpeg marker file: ${marker}")
+            }
+        }
+    }
+}
+
+afterEvaluate {
+    tasks.matching { it.name == 'preBuild' }.configureEach {
+        dependsOn tasks.named('ensureFfmpegAssets')
+    }
+}

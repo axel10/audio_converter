@@ -68,6 +68,7 @@ for arch in "${ARCHS[@]}"; do
     sdk="iphoneos"
     platform_name="iphoneos"
     ff_arch="arm64"
+    cc_arch="arm64"
     ff_cpu="armv8-a"
     extra_flags="-arch arm64 -miphoneos-version-min=$DEPLOYMENT_TARGET"
     # Opus treats arm* hosts as 32-bit ARM and enables celt/arm/*.S.
@@ -77,13 +78,16 @@ for arch in "${ARCHS[@]}"; do
     sdk="iphonesimulator"
     platform_name="iphonesimulator"
     ff_arch="arm64"
+    cc_arch="arm64"
     ff_cpu="armv8-a"
     extra_flags="-arch arm64 -miphonesimulator-version-min=$DEPLOYMENT_TARGET"
+    lame_host="aarch64-apple-darwin"
     opus_host="aarch64-apple-darwin"
   elif [[ "$arch" == "x86_64" ]]; then
     sdk="iphonesimulator"
     platform_name="iphonesimulator"
     ff_arch="x86_64"
+    cc_arch="x86_64"
     ff_cpu="x86-64"
     extra_flags="-arch x86_64 -miphonesimulator-version-min=$DEPLOYMENT_TARGET"
     opus_host="x86_64-apple-darwin"
@@ -91,8 +95,8 @@ for arch in "${ARCHS[@]}"; do
     echo "Unsupported architecture: $arch" >&2; exit 1
   fi
   sdk_path=$(xcrun -sdk "$sdk" --show-sdk-path)
-  cc="xcrun -sdk $sdk clang -arch $arch"
-  cxx="xcrun -sdk $sdk clang++ -arch $arch"
+  cc="xcrun -sdk $sdk clang -arch $cc_arch"
+  cxx="xcrun -sdk $sdk clang++ -arch $cc_arch"
   ar="xcrun -sdk $sdk ar"
   nm="xcrun -sdk $sdk nm"
   ranlib="xcrun -sdk $sdk ranlib"
@@ -113,6 +117,7 @@ for arch in "${ARCHS[@]}"; do
   
   # LAME configure 对于 iOS 需要设置 host
   lame_host="arm-apple-darwin"
+  [[ "$arch" == "arm64-sim" ]] && lame_host="aarch64-apple-darwin"
   [[ "$arch" == "x86_64" ]] && lame_host="x86_64-apple-darwin"
   "$lame_root/configure" \
     --prefix="$lame_install_root" \
@@ -121,7 +126,7 @@ for arch in "${ARCHS[@]}"; do
     --enable-static \
     --disable-frontend \
     CC="$cc" \
-    CFLAGS="$extra_flags -isysroot $sdk_path -fembed-bitcode" \
+    CFLAGS="$extra_flags -isysroot $sdk_path" \
     LDFLAGS="$extra_flags -isysroot $sdk_path" \
     AR="$ar" \
     RANLIB="$ranlib"
@@ -145,7 +150,7 @@ for arch in "${ARCHS[@]}"; do
     --disable-extra-programs \
     --disable-doc \
     CC="$cc" \
-    CFLAGS="$extra_flags -isysroot $sdk_path -fembed-bitcode -fPIC" \
+    CFLAGS="$extra_flags -isysroot $sdk_path -fPIC" \
     LDFLAGS="$extra_flags -isysroot $sdk_path" \
     AR="$ar" \
     RANLIB="$ranlib"
@@ -171,7 +176,7 @@ for arch in "${ARCHS[@]}"; do
     --strip="$strip"
     --enable-cross-compile
     --sysroot="$sdk_path"
-    --extra-cflags="$extra_flags -I$lame_install_root/include -I$opus_install_root/include/opus -fembed-bitcode"
+    --extra-cflags="$extra_flags -I$lame_install_root/include -I$opus_install_root/include/opus"
     --extra-ldflags="$extra_flags -L$lame_install_root/lib -L$opus_install_root/lib"
 
     # 基础配置 (参考你的 Android 脚本)

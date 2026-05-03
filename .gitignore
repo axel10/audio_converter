@@ -35,3 +35,5 @@ ffmpeg_lib
 lame-3.100
 android/src/main/jniLibs
 opus-*
+
+release-assets
