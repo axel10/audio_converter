@@ -185,7 +185,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   }
 
   Future<void> _pickOutputDirectory() async {
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       return;
     }
 
@@ -215,7 +215,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     }
 
     final baseName = p.basenameWithoutExtension(inputPath);
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       final tempDir = Directory(
         p.join(Directory.systemTemp.path, 'audio_converter'),
       );
@@ -233,7 +233,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   }
 
   String? get _previewOutputPath {
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isIOS) {
       return _savedOutputPath ?? _outputPath;
     }
 
@@ -283,7 +283,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       return;
     }
 
-    if (!Platform.isAndroid && _outputDirectory == null) {
+    if (!Platform.isAndroid && !Platform.isIOS && _outputDirectory == null) {
       setState(() {
         _status = 'Please pick an output directory first.';
       });
@@ -291,7 +291,10 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       return;
     }
 
-    _refreshOutputPreview();
+    if (Platform.isIOS) {
+      _refreshOutputPreview();
+    }
+
     final outputPath = _outputPath;
     if (outputPath == null) {
       setState(() {
@@ -320,8 +323,8 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
     setState(() {
       _isConverting = true;
-      _status = Platform.isAndroid
-          ? 'Converting to a temporary file, then SAF save will open...'
+      _status = Platform.isAndroid || Platform.isIOS
+          ? 'Converting to a temporary file, then a save dialog will open...'
           : 'Converting...';
     });
     final conversionLog = Platform.isIOS || Platform.isMacOS
@@ -345,7 +348,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         return;
       }
 
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid || Platform.isIOS) {
         final tempPath = result.outputPath ?? outputPath;
         final tempFile = File(tempPath);
         if (!await tempFile.exists()) {
@@ -381,16 +384,27 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
           _isConverting = false;
           _lastResult = result;
           if (savedPath == null) {
-            _status =
-                'Conversion finished, but the SAF save dialog was cancelled.';
-            _log('SAF save dialog was cancelled.');
+            _status = Platform.isAndroid
+                ? 'Conversion finished, but the SAF save dialog was cancelled.'
+                : 'Conversion finished, but the save dialog was cancelled.';
+            _log(
+              Platform.isAndroid
+                  ? 'SAF save dialog was cancelled.'
+                  : 'iOS save dialog was cancelled.',
+            );
             return;
           }
           _savedOutputPath = savedPath;
           _outputPath = tempPath;
-          _status = 'Converted successfully and saved via SAF.';
+          _status = Platform.isAndroid
+              ? 'Converted successfully and saved via SAF.'
+              : 'Converted successfully and saved.';
         });
-        _log('Converted file saved via SAF: $savedPath');
+        _log(
+          Platform.isAndroid
+              ? 'Converted file saved via SAF: $savedPath'
+              : 'Converted file saved via iOS save dialog: $savedPath',
+        );
         return;
       }
 
@@ -433,7 +447,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                   icon: const Icon(Icons.audio_file),
                   label: const Text('Choose input file'),
                 ),
-                if (!Platform.isAndroid)
+                if (!Platform.isAndroid && !Platform.isIOS)
                   FilledButton.icon(
                     onPressed: _pickOutputDirectory,
                     icon: const Icon(Icons.folder_open),
@@ -447,15 +461,18 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             SelectableText(
               Platform.isAndroid
                   ? 'Android uses SAF to save after conversion.'
+                  : Platform.isIOS
+                  ? 'iOS writes to the app temp directory first, then opens a save dialog.'
                   : 'Output directory: ${_outputDirectory ?? 'Not selected'}',
             ),
             const SizedBox(height: 4),
             SelectableText(
-              Platform.isAndroid
+              Platform.isAndroid || Platform.isIOS
                   ? 'Temporary output: ${_outputPath ?? 'Not ready'}'
                   : 'Output file: ${_previewOutputPath ?? 'Not ready'}',
             ),
-            if (Platform.isAndroid && _savedOutputPath != null) ...[
+            if ((Platform.isAndroid || Platform.isIOS) &&
+                _savedOutputPath != null) ...[
               const SizedBox(height: 4),
               SelectableText('Saved output: $_savedOutputPath'),
             ],
