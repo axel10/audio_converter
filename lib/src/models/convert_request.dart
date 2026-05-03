@@ -15,6 +15,7 @@ class ConvertRequest {
     this.aacEncoder,
     this.allowFallbackToFfmpeg = true,
     this.extraOptions,
+    this.customArgs,
   });
 
   final String inputPath;
@@ -28,6 +29,7 @@ class ConvertRequest {
   final AacEncoder? aacEncoder;
   final bool allowFallbackToFfmpeg;
   final Map<String, String>? extraOptions;
+  final List<String>? customArgs;
 
   Map<String, Object?> toMap() {
     return <String, Object?>{
@@ -42,6 +44,7 @@ class ConvertRequest {
       'aacEncoder': aacEncoder?.value,
       'allowFallbackToFfmpeg': allowFallbackToFfmpeg,
       'extraOptions': extraOptions,
+      'customArgs': customArgs,
     };
   }
 
@@ -66,6 +69,11 @@ class ConvertRequest {
           ? extraOptions.map(
               (key, value) => MapEntry(key.toString(), value.toString()),
             )
+          : null,
+      customArgs: map['customArgs'] is List
+          ? (map['customArgs'] as List)
+                .map((value) => value.toString())
+                .toList(growable: false)
           : null,
     );
   }

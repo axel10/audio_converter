@@ -43,6 +43,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     text: '192000',
   );
   final TextEditingController _ffmpegPathController = TextEditingController();
+  final TextEditingController _customArgsController = TextEditingController();
 
   ConverterCapabilities? _capabilities;
   AudioFormat? _selectedFormat;
@@ -72,6 +73,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   void dispose() {
     _bitRateController.dispose();
     _ffmpegPathController.dispose();
+    _customArgsController.dispose();
     super.dispose();
   }
 
@@ -288,6 +290,61 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     });
   }
 
+  List<String> _parseCustomArgs(String input) {
+    final args = <String>[];
+    var buffer = StringBuffer();
+    var inSingleQuotes = false;
+    var inDoubleQuotes = false;
+    var escaping = false;
+
+    void flushToken() {
+      if (buffer.isEmpty) {
+        return;
+      }
+      args.add(buffer.toString());
+      buffer = StringBuffer();
+    }
+
+    for (final rune in input.runes) {
+      final char = String.fromCharCode(rune);
+
+      if (escaping) {
+        buffer.write(char);
+        escaping = false;
+        continue;
+      }
+
+      if (char == r'\') {
+        escaping = true;
+        continue;
+      }
+
+      if (char == "'" && !inDoubleQuotes) {
+        inSingleQuotes = !inSingleQuotes;
+        continue;
+      }
+
+      if (char == '"' && !inSingleQuotes) {
+        inDoubleQuotes = !inDoubleQuotes;
+        continue;
+      }
+
+      if (char.trim().isEmpty && !inSingleQuotes && !inDoubleQuotes) {
+        flushToken();
+        continue;
+      }
+
+      buffer.write(char);
+    }
+
+    if (escaping) {
+      buffer.write(r'\');
+    }
+    flushToken();
+
+    return args;
+  }
+
   bool _usesAacEncoder(AudioFormat format) {
     return switch (format) {
       AudioFormat.aac ||
@@ -334,6 +391,9 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
     final baseName = p.basenameWithoutExtension(inputPath);
     final bitRate = int.tryParse(_bitRateController.text.trim());
+    final customArgs = (Platform.isWindows || Platform.isLinux)
+        ? _parseCustomArgs(_customArgsController.text.trim())
+        : const <String>[];
     final ffmpegPath =
         (Platform.isWindows || Platform.isLinux) && !_usingDefaultFfmpegPath
         ? (_ffmpegPathController.text.trim().isEmpty
@@ -348,6 +408,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       bitRateMode: _bitRateMode,
       ffmpegPath: ffmpegPath,
       aacEncoder: _aacEncoder,
+      customArgs: customArgs.isEmpty ? null : customArgs,
     );
 
     setState(() {
@@ -358,7 +419,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     });
     final conversionLog = Platform.isIOS || Platform.isMacOS
         ? 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, engine=rust-ffmpeg+Apple encoder for m4a'
-        : 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, aacEncoder=${_aacEncoder.value}, ffmpegPath=${request.ffmpegPath ?? "default"}';
+        : 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, aacEncoder=${_aacEncoder.value}, ffmpegPath=${request.ffmpegPath ?? "default"}, customArgs=${customArgs.isEmpty ? "[]" : customArgs.join(" ")}';
     _log(conversionLog);
 
     try {
@@ -617,6 +678,21 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                   ),
                 ),
               ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _customArgsController,
+                decoration: const InputDecoration(
+                  labelText: 'Custom ffmpeg args',
+                  border: OutlineInputBorder(),
+                  hintText: '-vn -map 0:a:0',
+                ),
+                minLines: 1,
+                maxLines: 3,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Arguments are appended to ffmpeg on Windows/Linux. Use spaces and quotes, for example: -vn or -metadata title="Demo".',
+              ),
             ] else if (Platform.isIOS || Platform.isMacOS) ...[
               const SizedBox(height: 12),
               const ListTile(

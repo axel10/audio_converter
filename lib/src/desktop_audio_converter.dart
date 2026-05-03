@@ -118,6 +118,7 @@ class DesktopAudioConverter {
       '-i',
       request.inputPath,
       ..._ffmpegArgs(request),
+      ...?request.customArgs,
       request.outputPath,
     ];
 
@@ -165,7 +166,12 @@ class DesktopAudioConverter {
   }
 
   List<String> _ffmpegArgs(ConvertRequest request) {
-    final args = <String>[];
+    final args = <String>[
+      // Audio-only conversions must suppress any video stream, otherwise
+      // inputs with embedded cover art can make ffmpeg try to auto-select a
+      // video encoder for the output container.
+      '-vn',
+    ];
 
     if (request.sampleRate != null) {
       args.addAll(<String>['-ar', request.sampleRate.toString()]);
