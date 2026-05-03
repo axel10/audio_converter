@@ -220,6 +220,7 @@ class RustBuilder {
 
     final sdkRoot = _darwinSdkRoot(target.darwinPlatform!);
     return {
+      'FFMPEG_DIR': _darwinFfmpegDir(),
       'PKG_CONFIG_ALLOW_CROSS': '1',
       'PKG_CONFIG_PATH': path.join(_darwinFfmpegDir(), 'lib', 'pkgconfig'),
       'SDKROOT': sdkRoot,
