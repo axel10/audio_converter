@@ -86,8 +86,8 @@ class DesktopAudioConverter {
         supportsCancellation: false,
         requiresExternalBinary: true,
         supportedAacEncoders: <AacEncoder>[
-          AacEncoder.builtinAac,
           AacEncoder.fdkaac,
+          AacEncoder.builtinAac,
         ],
         notes: 'Uses a user-provided ffmpeg binary or one available on PATH.',
       );
@@ -255,7 +255,7 @@ class DesktopAudioConverter {
       return 'aac';
     }
 
-    return switch (request.aacEncoder ?? AacEncoder.builtinAac) {
+    return switch (request.aacEncoder ?? AacEncoder.fdkaac) {
       AacEncoder.builtinAac => 'aac',
       AacEncoder.fdkaac => 'libfdk_aac',
     };

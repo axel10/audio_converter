@@ -46,7 +46,9 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
   ConverterCapabilities? _capabilities;
   AudioFormat? _selectedFormat;
-  AacEncoder _aacEncoder = AacEncoder.builtinAac;
+  AacEncoder _aacEncoder = Platform.isWindows || Platform.isLinux
+      ? AacEncoder.fdkaac
+      : AacEncoder.builtinAac;
   BitRateMode _bitRateMode = BitRateMode.cbr;
   String? _inputPath;
   String? _outputDirectory;
@@ -515,7 +517,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     final supportedEncoders =
         _capabilities?.supportedAacEncoders ??
         (Platform.isWindows || Platform.isLinux
-            ? const <AacEncoder>[AacEncoder.builtinAac, AacEncoder.fdkaac]
+            ? const <AacEncoder>[AacEncoder.fdkaac, AacEncoder.builtinAac]
             : const <AacEncoder>[]);
     final canChooseAacEncoder =
         supportedEncoders.isNotEmpty &&
