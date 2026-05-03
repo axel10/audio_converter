@@ -58,6 +58,7 @@ cargokit {
 def ffmpegReleaseBaseUrl = (System.getenv('AUDIO_CONVERTER_FFMPEG_RELEASE_BASE_URL')
         ?: 'https://github.com/axel10/audio_converter/releases/latest/download').replaceAll('/+$', '')
 def pluginRootDir = file('..')
+def androidJniLibsDir = new File(projectDir, 'src/main/jniLibs')
 def ffmpegAssetNamesByAbi = [
         'arm64-v8a': 'audio_converter-ffmpeg-android-arm64-v8a.zip',
         'armeabi-v7a': 'audio_converter-ffmpeg-android-armeabi-v7a.zip',
@@ -74,37 +75,49 @@ def ffmpegMarkerFilesByAbi = [
 tasks.register('ensureFfmpegAssets') {
     doLast {
         ffmpegMarkerFilesByAbi.each { abi, marker ->
-            if (marker.exists()) {
-                logger.lifecycle("ffmpeg assets already present for ${abi}")
-                return
-            }
+            if (!marker.exists()) {
+                def assetName = ffmpegAssetNamesByAbi[abi]
+                if (assetName == null) {
+                    throw new GradleException("Unsupported Android ABI for ffmpeg assets: ${abi}")
+                }
 
-            def assetName = ffmpegAssetNamesByAbi[abi]
-            if (assetName == null) {
-                throw new GradleException("Unsupported Android ABI for ffmpeg assets: ${abi}")
-            }
+                def assetUrl = new URL("${ffmpegReleaseBaseUrl}/${assetName}")
+                def tempDir = new File(buildDir, '.ffmpeg-assets')
+                tempDir.mkdirs()
+                def tempZip = new File(tempDir, assetName)
 
-            def assetUrl = new URL("${ffmpegReleaseBaseUrl}/${assetName}")
-            def tempDir = new File(buildDir, '.ffmpeg-assets')
-            tempDir.mkdirs()
-            def tempZip = new File(tempDir, assetName)
+                logger.lifecycle("Downloading ${assetName} from ${assetUrl}")
+                assetUrl.withInputStream { input ->
+                    tempZip.withOutputStream { output ->
+                        output << input
+                    }
+                }
 
-            logger.lifecycle("Downloading ${assetName} from ${assetUrl}")
-            assetUrl.withInputStream { input ->
-                tempZip.withOutputStream { output ->
-                    output << input
+                logger.lifecycle("Unpacking ${assetName} into ${pluginRootDir}")
+                copy {
+                    from zipTree(tempZip)
+                    into pluginRootDir
+                }
+
+                if (!marker.exists()) {
+                    throw new GradleException("Failed to unpack expected ffmpeg marker file: ${marker}")
                 }
             }
 
-            logger.lifecycle("Unpacking ${assetName} into ${pluginRootDir}")
+            def jniLibsAbiDir = new File(androidJniLibsDir, abi)
+            jniLibsAbiDir.mkdirs()
             copy {
-                from zipTree(tempZip)
-                into pluginRootDir
+                from marker.parentFile
+                include '*.so'
+                into jniLibsAbiDir
             }
 
-            if (!marker.exists()) {
-                throw new GradleException("Failed to unpack expected ffmpeg marker file: ${marker}")
+            def copiedLibs = fileTree(jniLibsAbiDir).matching { include '*.so' }.files
+            if (copiedLibs.isEmpty()) {
+                throw new GradleException("Failed to copy ffmpeg shared libraries into ${jniLibsAbiDir}")
             }
+
+            logger.lifecycle("Synced ffmpeg shared libraries into ${jniLibsAbiDir}")
         }
     }
 }
