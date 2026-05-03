@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::formats::output_format_key;
+fn normalize_output_format(value: &str) -> String {
+    value.trim().to_lowercase()
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,7 +86,7 @@ pub(crate) fn failure_result(
         command: None,
         output_path: None,
         engine: Some("rust-ffmpeg".to_string()),
-        output_format: Some(output_format_key(&request.output_format)),
+        output_format: Some(normalize_output_format(&request.output_format)),
         error_code: Some(error_code.to_string()),
         error_message: Some(error_message),
         stdout: None,
