@@ -1,4 +1,5 @@
 import 'audio_format.dart';
+import 'aac_encoder.dart';
 import 'bit_rate_mode.dart';
 
 class ConvertRequest {
@@ -11,6 +12,7 @@ class ConvertRequest {
     this.bitRate,
     this.bitRateMode,
     this.ffmpegPath,
+    this.aacEncoder,
     this.allowFallbackToFfmpeg = true,
     this.extraOptions,
   });
@@ -23,6 +25,7 @@ class ConvertRequest {
   final int? bitRate;
   final BitRateMode? bitRateMode;
   final String? ffmpegPath;
+  final AacEncoder? aacEncoder;
   final bool allowFallbackToFfmpeg;
   final Map<String, String>? extraOptions;
 
@@ -36,6 +39,7 @@ class ConvertRequest {
       'bitRate': bitRate,
       'bitRateMode': bitRateMode?.value,
       'ffmpegPath': ffmpegPath,
+      'aacEncoder': aacEncoder?.value,
       'allowFallbackToFfmpeg': allowFallbackToFfmpeg,
       'extraOptions': extraOptions,
     };
@@ -54,6 +58,9 @@ class ConvertRequest {
           ? null
           : bitRateModeFromValue(map['bitRateMode'] as String),
       ffmpegPath: map['ffmpegPath'] as String?,
+      aacEncoder: map['aacEncoder'] == null
+          ? null
+          : aacEncoderFromValue(map['aacEncoder'] as String),
       allowFallbackToFfmpeg: map['allowFallbackToFfmpeg'] as bool? ?? true,
       extraOptions: extraOptions is Map
           ? extraOptions.map(

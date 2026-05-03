@@ -42,6 +42,13 @@ tooling/package_ffmpeg_assets.sh
 
 Windows 和 Linux 的桌面安装包，建议把 `ffmpeg` 可执行文件和应用程序放在同一个安装目录里，或者放在代码已经支持的子目录里。
 
+桌面端现在支持在 AAC 输出时选择编码器：
+
+- `Built-in AAC`
+- `FDK-AAC`
+
+其中 `FDK-AAC` 依赖你打包的 ffmpeg 二进制确实启用了 `libfdk_aac`。如果你用的是自定义 ffmpeg，请确保它编进了这个编码器。
+
 推荐目录约定：
 
 - Windows

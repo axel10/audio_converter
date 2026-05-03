@@ -46,6 +46,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
   ConverterCapabilities? _capabilities;
   AudioFormat? _selectedFormat;
+  AacEncoder _aacEncoder = AacEncoder.builtinAac;
   BitRateMode _bitRateMode = BitRateMode.cbr;
   String? _inputPath;
   String? _outputDirectory;
@@ -103,12 +104,18 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       if (!mounted) return;
       setState(() {
         final supportedFormats = capabilities.supportedOutputFormats;
+        final supportedEncoders = capabilities.supportedAacEncoders;
         _capabilities = capabilities;
         _selectedFormat = supportedFormats.contains(_selectedFormat)
             ? _selectedFormat
             : (supportedFormats.isNotEmpty
                   ? supportedFormats.first
                   : AudioFormat.m4a);
+        _aacEncoder = supportedEncoders.contains(_aacEncoder)
+            ? _aacEncoder
+            : (supportedEncoders.isNotEmpty
+                  ? supportedEncoders.first
+                  : AacEncoder.builtinAac);
         _loadingCapabilities = false;
         _status = 'Capabilities loaded for ${capabilities.engine}.';
         _refreshOutputPreview();
@@ -270,6 +277,25 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     });
   }
 
+  void _onAacEncoderChanged(AacEncoder? value) {
+    if (value == null) {
+      return;
+    }
+    setState(() {
+      _aacEncoder = value;
+    });
+  }
+
+  bool _usesAacEncoder(AudioFormat format) {
+    return switch (format) {
+      AudioFormat.aac ||
+      AudioFormat.caf ||
+      AudioFormat.m4a ||
+      AudioFormat.m4b => true,
+      _ => false,
+    };
+  }
+
   Future<void> _convert() async {
     final inputPath = _inputPath;
     final selectedFormat = _selectedFormat;
@@ -319,6 +345,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       bitRate: bitRate,
       bitRateMode: _bitRateMode,
       ffmpegPath: ffmpegPath,
+      aacEncoder: _aacEncoder,
     );
 
     setState(() {
@@ -329,7 +356,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     });
     final conversionLog = Platform.isIOS || Platform.isMacOS
         ? 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, engine=rust-ffmpeg+Apple encoder for m4a'
-        : 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, ffmpegPath=${request.ffmpegPath ?? "default"}';
+        : 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, aacEncoder=${_aacEncoder.value}, ffmpegPath=${request.ffmpegPath ?? "default"}';
     _log(conversionLog);
 
     try {
@@ -485,6 +512,15 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   Widget _buildSettingsCard() {
     final formats = _formatOptions;
     final selectedFormat = _selectedFormat ?? formats.first;
+    final supportedEncoders =
+        _capabilities?.supportedAacEncoders ??
+        (Platform.isWindows || Platform.isLinux
+            ? const <AacEncoder>[AacEncoder.builtinAac, AacEncoder.fdkaac]
+            : const <AacEncoder>[]);
+    final canChooseAacEncoder =
+        supportedEncoders.isNotEmpty &&
+        (Platform.isWindows || Platform.isLinux) &&
+        _usesAacEncoder(selectedFormat);
 
     return Card(
       child: Padding(
@@ -537,6 +573,25 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+            if (canChooseAacEncoder) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<AacEncoder>(
+                initialValue: _aacEncoder,
+                items: supportedEncoders
+                    .map(
+                      (encoder) => DropdownMenuItem<AacEncoder>(
+                        value: encoder,
+                        child: Text(encoder.label),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: _onAacEncoderChanged,
+                decoration: const InputDecoration(
+                  labelText: 'AAC encoder',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
             if (Platform.isWindows || Platform.isLinux) ...[
               const SizedBox(height: 12),
               SwitchListTile.adaptive(
@@ -637,6 +692,9 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             ),
             Text('Supports progress: ${capabilities.supportsProgress}'),
             Text('Supports cancellation: ${capabilities.supportsCancellation}'),
+            Text(
+              'Supported AAC encoders: ${capabilities.supportedAacEncoders.isEmpty ? "n/a" : capabilities.supportedAacEncoders.map((encoder) => encoder.label).join(", ")}',
+            ),
             if (capabilities.notes != null) ...[
               const SizedBox(height: 8),
               Text(capabilities.notes!),

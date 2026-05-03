@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'models/audio_format.dart';
+import 'models/aac_encoder.dart';
 import 'models/bit_rate_mode.dart';
 import 'models/convert_request.dart';
 import 'models/convert_result.dart';
@@ -84,6 +85,10 @@ class DesktopAudioConverter {
         supportsProgress: false,
         supportsCancellation: false,
         requiresExternalBinary: true,
+        supportedAacEncoders: <AacEncoder>[
+          AacEncoder.builtinAac,
+          AacEncoder.fdkaac,
+        ],
         notes: 'Uses a user-provided ffmpeg binary or one available on PATH.',
       );
     }
@@ -186,7 +191,7 @@ class DesktopAudioConverter {
         ...args,
         ...bitrateArgs,
         '-c:a',
-        'aac',
+        _aacEncoderName(request),
         '-f',
         'adts',
       ],
@@ -196,7 +201,7 @@ class DesktopAudioConverter {
         ...args,
         ...bitrateArgs,
         '-c:a',
-        'aac',
+        _aacEncoderName(request),
         '-f',
         'caf',
       ],
@@ -205,7 +210,7 @@ class DesktopAudioConverter {
         ...args,
         ...bitrateArgs,
         '-c:a',
-        'aac',
+        _aacEncoderName(request),
         '-f',
         'ipod',
       ],
@@ -213,7 +218,7 @@ class DesktopAudioConverter {
         ...args,
         ...bitrateArgs,
         '-c:a',
-        'aac',
+        _aacEncoderName(request),
         '-f',
         'ipod',
       ],
@@ -242,6 +247,17 @@ class DesktopAudioConverter {
         'opus',
       ],
       AudioFormat.wav => <String>[...args, '-c:a', 'pcm_s16le', '-f', 'wav'],
+    };
+  }
+
+  String _aacEncoderName(ConvertRequest request) {
+    if (!(Platform.isWindows || Platform.isLinux)) {
+      return 'aac';
+    }
+
+    return switch (request.aacEncoder ?? AacEncoder.builtinAac) {
+      AacEncoder.builtinAac => 'aac',
+      AacEncoder.fdkaac => 'libfdk_aac',
     };
   }
 
