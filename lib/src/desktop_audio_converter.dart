@@ -56,7 +56,7 @@ class DesktopAudioConverter {
   Future<ConverterCapabilities> getCapabilities() async {
     if (_usesBundledRustFfmpeg) {
       await _ensureRustInitialized();
-      final raw = await rust_api.androidGetCapabilities();
+      final raw = await rust_api.getCapabilities();
       final capabilities = ConverterCapabilities.fromMap(
         jsonDecode(raw) as Map<Object?, Object?>,
       );
@@ -96,7 +96,7 @@ class DesktopAudioConverter {
   }
 
   Future<ConvertResult> _convertWithRustFfmpeg(ConvertRequest request) async {
-    final raw = await rust_api.androidConvertFile(
+    final raw = await rust_api.convertFile(
       requestJson: jsonEncode(request.toMap()),
     );
     return ConvertResult.fromMap(jsonDecode(raw) as Map<Object?, Object?>);

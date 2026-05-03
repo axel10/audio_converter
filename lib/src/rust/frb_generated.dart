@@ -82,11 +82,9 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiSimpleInitApp();
 
-  Future<String> crateApiSimpleAndroidConvertFile({
-    required String requestJson,
-  });
+  Future<String> crateApiSimpleConvertFile({required String requestJson});
 
-  String crateApiSimpleAndroidGetCapabilities();
+  String crateApiSimpleGetCapabilities();
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -148,9 +146,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
-  Future<String> crateApiSimpleAndroidConvertFile({
-    required String requestJson,
-  }) {
+  Future<String> crateApiSimpleConvertFile({required String requestJson}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -167,21 +163,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiSimpleAndroidConvertFileConstMeta,
+        constMeta: kCrateApiSimpleConvertFileConstMeta,
         argValues: [requestJson],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSimpleAndroidConvertFileConstMeta =>
-      const TaskConstMeta(
-        debugName: "android_convert_file",
-        argNames: ["requestJson"],
-      );
+  TaskConstMeta get kCrateApiSimpleConvertFileConstMeta =>
+      const TaskConstMeta(debugName: "convert_file", argNames: ["requestJson"]);
 
   @override
-  String crateApiSimpleAndroidGetCapabilities() {
+  String crateApiSimpleGetCapabilities() {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -192,15 +185,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiSimpleAndroidGetCapabilitiesConstMeta,
+        constMeta: kCrateApiSimpleGetCapabilitiesConstMeta,
         argValues: const [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiSimpleAndroidGetCapabilitiesConstMeta =>
-      const TaskConstMeta(debugName: "android_get_capabilities", argNames: []);
+  TaskConstMeta get kCrateApiSimpleGetCapabilitiesConstMeta =>
+      const TaskConstMeta(debugName: "get_capabilities", argNames: []);
 
   @protected
   String dco_decode_String(dynamic raw) {

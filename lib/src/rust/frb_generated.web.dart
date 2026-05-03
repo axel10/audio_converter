@@ -77,9 +77,9 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiSimpleInitApp();
 
-  Future<String> crateApiSimpleAndroidConvertFile({required String requestJson});
+  Future<String> crateApiSimpleConvertFile({required String requestJson});
 
-  String crateApiSimpleAndroidGetCapabilities();
+  String crateApiSimpleGetCapabilities();
 }
 
 // Section: wire_class
