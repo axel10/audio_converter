@@ -66,7 +66,7 @@ $env:PKG_CONFIG_PATH = (Join-Path $mingwBin 'lib\pkgconfig')
 $env:MSYSTEM = 'MINGW64'
 $env:MSYS2_PATH_TYPE = 'inherit'
 
-foreach ($pkg in @('opus', 'lame')) {
+foreach ($pkg in @('opus', 'lame', 'fdk-aac')) {
     Write-Host "[2/4] Checking pkg-config package: $pkg"
     & $bash -lc "export MSYSTEM=MINGW64; export PATH=/mingw64/bin:`$PATH; export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig; pkg-config --exists $pkg"
     if ($LASTEXITCODE -ne 0) {
@@ -147,6 +147,8 @@ configureArgs=(
   --enable-filter=aresample
   --enable-small
   --enable-gpl
+  --enable-nonfree
+  --enable-libfdk-aac
   --enable-protocol=file
   --enable-protocol=pipe
   --enable-parser=aac
@@ -175,6 +177,7 @@ configureArgs=(
   --enable-encoder=mjpeg
   --enable-encoder=libmp3lame
   --enable-encoder=libopus
+  --enable-encoder=libfdk_aac
   --enable-encoder=pcm_s16le
   --enable-encoder=pcm_s24le
   --enable-encoder=pcm_s32le

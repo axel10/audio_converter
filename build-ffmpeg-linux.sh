@@ -95,6 +95,7 @@ if ! pkg-config --exists libmp3lame && ! pkg-config --exists lame; then
   echo "Missing pkg-config package: libmp3lame (or lame)" >&2
   exit 1
 fi
+need_pkg_config_pkg fdk-aac
 if ! pkg-config --exists libmpg123; then
   log "Warning: libmpg123 not found via pkg-config. Some static builds of libmp3lame might need it."
 fi
@@ -138,6 +139,8 @@ configure_args=(
   --enable-filter=aresample
   --enable-small
   --enable-gpl
+  --enable-nonfree
+  --enable-libfdk-aac
   --enable-protocol=file
   --enable-protocol=pipe
   --enable-parser=aac
@@ -166,6 +169,7 @@ configure_args=(
   --enable-encoder=mjpeg
   --enable-encoder=libmp3lame
   --enable-encoder=libopus
+  --enable-encoder=libfdk_aac
   --enable-encoder=pcm_s16le
   --enable-encoder=pcm_s24le
   --enable-encoder=pcm_s32le
