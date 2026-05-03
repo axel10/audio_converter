@@ -38,6 +38,35 @@ tooling/package_ffmpeg_assets.sh
 - `audio_converter-ffmpeg-android-x86.zip`
 - `audio_converter-ffmpeg-android-x86_64.zip`
 
+## 桌面端打包约定
+
+Windows 和 Linux 的桌面安装包，建议把 `ffmpeg` 可执行文件和应用程序放在同一个安装目录里，或者放在代码已经支持的子目录里。
+
+推荐目录约定：
+
+- Windows
+  - `audio_converter_example.exe`
+  - `ffmpeg.exe`
+  - 可选 `ffprobe.exe`
+- Linux
+  - `audio_converter_example`
+  - `ffmpeg`
+  - 可选 `ffprobe`
+
+如果你希望放在子目录里，当前运行时代码也会顺序检查这些位置：
+
+- `./ffmpeg`
+- `./bin/ffmpeg`
+- `./tools/ffmpeg`
+- `./libexec/ffmpeg`
+
+也就是说，安装器只要把二进制解压到程序目录内，代码就能自动找到它；如果你想自己指定路径，`ConvertRequest.ffmpegPath` 仍然可以覆盖默认行为。
+
+本地构建产物目录现在也按平台分开了：
+
+- `build/ffmpeg-linux/install/bin/ffmpeg`
+- `build/ffmpeg-windows/install/bin/ffmpeg.exe`
+
 ## 仍然保留的本地构建方式
 
 如果你想继续本地编译，`build-ffmpeg-ios.sh`、`build-ffmpeg-macos.sh`、`build-ffmpeg-android.sh` 仍然可用。

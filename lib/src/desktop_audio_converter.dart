@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'models/audio_format.dart';
 import 'models/bit_rate_mode.dart';
 import 'models/convert_request.dart';
@@ -56,7 +58,7 @@ class DesktopAudioConverter {
   Future<ConverterCapabilities> getCapabilities() async {
     if (_usesBundledRustFfmpeg) {
       await _ensureRustInitialized();
-      final raw = await rust_api.getCapabilities();
+      final raw = rust_api.getCapabilities();
       final capabilities = ConverterCapabilities.fromMap(
         jsonDecode(raw) as Map<Object?, Object?>,
       );
@@ -105,7 +107,7 @@ class DesktopAudioConverter {
   Future<ConvertResult> _convertWithFfmpeg(ConvertRequest request) async {
     final ffmpegPath = request.ffmpegPath?.trim().isNotEmpty == true
         ? request.ffmpegPath!.trim()
-        : 'ffmpeg';
+        : _defaultBundledFfmpegPath() ?? 'ffmpeg';
     final args = <String>[
       '-y',
       '-i',
@@ -126,6 +128,35 @@ class DesktopAudioConverter {
       request: request,
       command: _formatCommand(ffmpegPath, args),
     );
+  }
+
+  String? _defaultBundledFfmpegPath() {
+    if (!Platform.isWindows && !Platform.isLinux) {
+      return null;
+    }
+
+    final executableDir = p.dirname(Platform.resolvedExecutable);
+    final executableName = Platform.isWindows ? 'ffmpeg.exe' : 'ffmpeg';
+
+    // Prefer a binary placed next to the app executable, then check a few
+    // common installer layouts before falling back to PATH.
+    final candidates = <String>[
+      p.join(executableDir, executableName),
+      p.join(executableDir, 'bin', executableName),
+      p.join(executableDir, 'lib', executableName),
+      p.join(executableDir, 'ffmpeg', executableName),
+      p.join(executableDir, 'tools', 'ffmpeg', executableName),
+      p.join(executableDir, 'libexec', executableName),
+      p.join(executableDir, 'libexec', 'ffmpeg', executableName),
+    ];
+
+    for (final candidate in candidates) {
+      if (File(candidate).existsSync()) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   List<String> _ffmpegArgs(ConvertRequest request) {
