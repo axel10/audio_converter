@@ -67,7 +67,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/integration_test/ios"
 
 SPEC CHECKSUMS:
-  audio_converter: e618154cf6324241382da143f79b6eaba89d33bc
+  audio_converter: b3e5f21ab52e8fcd3dc9bd7e6432b81ed760a0f9
   DKImagePickerController: 946cec48c7873164274ecc4624d19e3da4c1ef3c
   DKPhotoGallery: b3834fecb755ee09a593d7c9e389d8b5d6deed60
   file_picker: a0560bc09d61de87f12d246fc47d2119e6ef37be

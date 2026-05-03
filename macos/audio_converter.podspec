@@ -3,8 +3,10 @@
 # Run `pod lib lint audio_converter.podspec` to validate before publishing.
 #
 Pod::Spec.new do |s|
-  ffmpeg_lib_arm64 = '$(PROJECT_DIR)/../../macos/ffmpeg_lib/arm64/lib'
-  ffmpeg_lib_x86_64 = '$(PROJECT_DIR)/../../macos/ffmpeg_lib/amd64/lib'
+  # Use the pod source root so the path resolves inside the plugin package,
+  # not the host app's macos/ directory.
+  ffmpeg_lib_arm64 = '$(PODS_ROOT)/../Flutter/ephemeral/.symlinks/plugins/audio_converter/macos/ffmpeg_lib/arm64/lib'
+  ffmpeg_lib_x86_64 = '$(PODS_ROOT)/../Flutter/ephemeral/.symlinks/plugins/audio_converter/macos/ffmpeg_lib/amd64/lib'
 
   s.name             = 'audio_converter'
   s.version          = '0.0.1'
