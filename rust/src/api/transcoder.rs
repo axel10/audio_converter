@@ -1,4 +1,4 @@
-use ffmpeg::{codec, filter, format, frame, media};
+use ffmpeg::{codec, filter, format, frame, media, Dictionary};
 use ffmpeg_next as ffmpeg;
 
 use super::common::ensure_ffmpeg_initialized;
@@ -8,7 +8,8 @@ use super::debug::{
 };
 use super::formats::{
     codec_spec_for_format, encoder_quality_for_bitrate, normalize_path, output_bitrate_mode,
-    output_channel_layout, output_format_key, output_sample_format, uses_lossy_bitrate_controls,
+    output_channel_layout, output_format_key, output_sample_format, output_sample_rate,
+    uses_lossy_bitrate_controls,
 };
 use super::models::{AndroidConvertRequest, AndroidConvertResult, ConversionFailure};
 
@@ -72,7 +73,11 @@ fn build_transcoder(
         .audio()
         .map_err(|error| error.to_string())?;
 
-    let sample_rate = request.sample_rate.unwrap_or_else(|| decoder.rate());
+    let sample_rate = output_sample_rate(
+        &output_format_key,
+        request.sample_rate,
+        decoder.rate(),
+    );
     let channel_layout = output_channel_layout(
         request.channels,
         decoder.channel_layout(),
@@ -99,18 +104,30 @@ fn build_transcoder(
                 .unwrap_or_else(|| decoder.bit_rate()),
         );
 
-        if let Some(mode) = output_bitrate_mode(request) {
-            if mode == "vbr" {
-                if let Some(bit_rate) = request.bit_rate {
-                    if let Some(quality) = encoder_quality_for_bitrate(bit_rate) {
-                        encoder.set_quality(quality);
+        if output_format_key != "opus" {
+            if let Some(mode) = output_bitrate_mode(request) {
+                if mode == "vbr" {
+                    if let Some(bit_rate) = request.bit_rate {
+                        if let Some(quality) = encoder_quality_for_bitrate(bit_rate) {
+                            encoder.set_quality(quality);
+                        }
                     }
                 }
             }
         }
     }
 
-    let encoder = encoder.open_as(codec).map_err(|error| error.to_string())?;
+    let use_opus_vbr = output_format_key == "opus"
+        && matches!(output_bitrate_mode(request), Some("vbr"));
+    let encoder = if use_opus_vbr {
+        let mut options = Dictionary::new();
+        options.set("vbr", "on");
+        encoder
+            .open_as_with(codec, options)
+            .map_err(|error| error.to_string())?
+    } else {
+        encoder.open_as(codec).map_err(|error| error.to_string())?
+    };
     stream.set_time_base((1, sample_rate as i32));
     stream.set_parameters(&encoder);
 

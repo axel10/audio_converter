@@ -24,6 +24,25 @@ pub(crate) fn output_format_key(value: &str) -> String {
     value.trim().to_lowercase()
 }
 
+pub(crate) fn output_sample_rate(
+    format: &str,
+    requested: Option<u32>,
+    fallback: u32,
+) -> u32 {
+    let format = output_format_key(format);
+    match format.as_str() {
+        // libopus only accepts a small set of native rates. When callers do not
+        // specify one, or they pass an unsupported input rate like 44100 Hz,
+        // we must coerce to a valid rate up front or encoder initialization
+        // fails with EINVAL.
+        "opus" => match requested {
+            Some(rate @ (8000 | 12000 | 16000 | 24000 | 48000)) => rate,
+            _ => 48000,
+        },
+        _ => requested.unwrap_or(fallback),
+    }
+}
+
 pub(crate) fn supports_output_format_on_current_platform(format: &str) -> bool {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
