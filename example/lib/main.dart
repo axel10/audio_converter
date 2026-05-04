@@ -53,6 +53,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   String? _inputPath;
   List<String> _inputPaths = <String>[];
   String? _outputDirectory;
+  AndroidOutputDirectory? _androidOutputDirectory;
   ConvertResult? _lastResult;
   final List<String> _logEntries = <String>[];
   String _status = 'Ready.';
@@ -191,6 +192,25 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
   Future<void> _pickOutputDirectory() async {
     _log('Opening output directory picker...');
+    if (Platform.isAndroid) {
+      final directory = await _converter.pickAndroidOutputDirectory();
+      if (directory == null || !mounted) {
+        _log('Output directory picker was cancelled or returned no path.');
+        return;
+      }
+
+      setState(() {
+        _androidOutputDirectory = directory;
+        _outputDirectory = directory.displayPath;
+        _status = 'Output directory selected.';
+        _refreshOutputPreview();
+      });
+      _log(
+        'Output directory selected: ${directory.displayPath} (${directory.treeUri})',
+      );
+      return;
+    }
+
     final directory = await _converter.pickOutputDirectory();
     if (directory == null || !mounted) {
       _log('Output directory picker was cancelled or returned no path.');
@@ -206,20 +226,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   }
 
   void _refreshOutputPreview() {
-    final inputPath =
-        _inputPath ?? (_inputPaths.isNotEmpty ? _inputPaths.first : null);
-    final selectedFormat = _selectedFormat;
-    if (inputPath == null || selectedFormat == null) {
-      return;
-    }
-
-    final baseName = p.basenameWithoutExtension(inputPath);
-    final outputDirectory = _outputDirectory;
-    if (outputDirectory == null) {
-      return;
-    }
-
-    p.join(outputDirectory, '$baseName.${selectedFormat.value}');
+    // The preview path is derived from state on demand below.
   }
 
   String? get _previewOutputPath {
@@ -461,29 +468,60 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       _conversionProgress = null;
     });
     _log(
-      'Starting batch conversion: count=${requests.length}, outputDirectory=$outputDirectory, format=${selectedFormat.value}',
+      'Starting batch conversion: count=${requests.length}, outputDirectory=$outputDirectory, firstOutputPath=${requests.isNotEmpty ? requests.first.outputPath : 'n/a'}, format=${selectedFormat.value}',
     );
 
     try {
-      final results = await _converter.convertFiles(
-        requests,
-        onProgress: _handleBatchProgress,
-      );
-      if (!mounted) return;
+      if (Platform.isAndroid && _androidOutputDirectory != null) {
+        final results = <ConvertAndSaveResult>[];
+        for (final request in requests) {
+          final result = await _converter.convertAndSaveToAndroidDirectory(
+            request,
+            _androidOutputDirectory!,
+            onProgress: _handleBatchProgress,
+          );
+          results.add(result);
+        }
+        if (!mounted) return;
 
-      final successCount = results.where((result) => result.success).length;
-      final failureCount = results.length - successCount;
-      setState(() {
-        _isBatchConverting = false;
-        _status = failureCount == 0
-            ? 'Batch conversion completed successfully.'
-            : 'Batch conversion finished with $successCount success(es) and $failureCount failure(s).';
-        _lastResult = results.isEmpty ? null : results.last;
-        _conversionProgress = results.isEmpty ? null : _conversionProgress;
-      });
-      _log(
-        'Batch conversion completed: total=${results.length}, success=$successCount, failure=$failureCount',
-      );
+        final successCount = results.where((result) => result.success).length;
+        final failureCount = results.length - successCount;
+        setState(() {
+          _isBatchConverting = false;
+          _status = failureCount == 0
+              ? 'Batch conversion completed successfully.'
+              : 'Batch conversion finished with $successCount success(es) and $failureCount failure(s).';
+          _lastResult = results.isEmpty
+              ? null
+              : results.last.conversionResult.copyWith(
+                  outputPath: results.last.outputPath,
+                );
+          _conversionProgress = results.isEmpty ? null : _conversionProgress;
+        });
+        _log(
+          'Batch conversion completed: total=${results.length}, success=$successCount, failure=$failureCount',
+        );
+      } else {
+        final results = await _converter.convertFiles(
+          requests,
+          onProgress: _handleBatchProgress,
+        );
+        if (!mounted) return;
+
+        final successCount = results.where((result) => result.success).length;
+        final failureCount = results.length - successCount;
+        setState(() {
+          _isBatchConverting = false;
+          _status = failureCount == 0
+              ? 'Batch conversion completed successfully.'
+              : 'Batch conversion finished with $successCount success(es) and $failureCount failure(s).';
+          _lastResult = results.isEmpty ? null : results.last;
+          _conversionProgress = results.isEmpty ? null : _conversionProgress;
+        });
+        _log(
+          'Batch conversion completed: total=${results.length}, success=$successCount, failure=$failureCount',
+        );
+      }
     } catch (error, stackTrace) {
       if (!mounted) return;
       setState(() {
@@ -709,7 +747,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             const SizedBox(height: 8),
             const Text(
               'Android does not request broad storage permission here. '
-              'The plugin handles the input picker and output directory selection internally.',
+              'On Android, conversion writes to the app temporary directory first and then exports into the SAF-selected folder.',
             ),
           ],
         ),

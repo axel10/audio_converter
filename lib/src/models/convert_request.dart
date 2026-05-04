@@ -114,10 +114,17 @@ class ConvertRequest {
     List<String>? customArgs,
   }) {
     final baseName = p.basenameWithoutExtension(inputPath);
+    final outputPath = Platform.isAndroid
+        ? p.join(
+            Directory.systemTemp.path,
+            'audio_converter',
+            '$baseName.${outputFormat.value}',
+          )
+        : p.join(outputDirectory, '$baseName.${outputFormat.value}');
 
     return ConvertRequest(
       inputPath: inputPath,
-      outputPath: p.join(outputDirectory, '$baseName.${outputFormat.value}'),
+      outputPath: outputPath,
       outputFormat: outputFormat,
       sampleRate: sampleRate,
       channels: channels,

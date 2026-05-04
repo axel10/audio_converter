@@ -49,6 +49,10 @@ android {
     }
 }
 
+dependencies {
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+}
+
 apply from: "../cargokit/gradle/plugin.gradle"
 cargokit {
     manifestDir = "../rust"
