@@ -446,8 +446,12 @@ class DesktopAudioConverter {
       '-vn',
     ];
 
-    if (request.sampleRate != null) {
-      args.addAll(<String>['-ar', request.sampleRate.toString()]);
+    final isOpus = request.outputFormat == AudioFormat.opus;
+    final sampleRate = isOpus
+        ? _opusSampleRate(request.sampleRate)
+        : request.sampleRate;
+    if (sampleRate != null) {
+      args.addAll(<String>['-ar', sampleRate.toString()]);
     }
     if (request.channels != null) {
       args.addAll(<String>['-ac', request.channels.toString()]);
@@ -519,7 +523,12 @@ class DesktopAudioConverter {
       ],
       AudioFormat.opus => <String>[
         ...args,
-        ...bitrateArgs,
+        if (bitRate != null) ...<String>[
+          '-b:a',
+          bitRate.toString(),
+          '-vbr',
+          bitRateMode == BitRateMode.vbr ? 'on' : 'off',
+        ],
         '-c:a',
         'libopus',
         '-f',
@@ -640,6 +649,13 @@ class DesktopAudioConverter {
     if (bitRate <= 192000) return 3;
     if (bitRate <= 256000) return 2;
     return 1;
+  }
+
+  int _opusSampleRate(int? requestedSampleRate) {
+    return switch (requestedSampleRate) {
+      8000 || 12000 || 16000 || 24000 || 48000 => requestedSampleRate!,
+      _ => 48000,
+    };
   }
 
   ConvertResult _resultFromProcess(
