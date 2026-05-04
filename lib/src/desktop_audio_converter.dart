@@ -56,6 +56,16 @@ class DesktopAudioConverter {
     );
   }
 
+  Future<List<ConvertResult>> convertFiles(
+    List<ConvertRequest> requests,
+  ) async {
+    final results = <ConvertResult>[];
+    for (final request in requests) {
+      results.add(await convertFile(request));
+    }
+    return results;
+  }
+
   Future<ConverterCapabilities> getCapabilities() async {
     if (_usesBundledRustFfmpeg) {
       await _ensureRustInitialized();

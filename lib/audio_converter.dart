@@ -31,6 +31,10 @@ class AudioConverter {
     return _desktopConverter.convertFile(request);
   }
 
+  Future<List<ConvertResult>> convertFiles(List<ConvertRequest> requests) {
+    return _desktopConverter.convertFiles(requests);
+  }
+
   Future<String?> pickInputFile({List<String>? allowedExtensions}) async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
@@ -53,6 +57,34 @@ class AudioConverter {
       withData: false,
     );
     return result?.files.single.path;
+  }
+
+  Future<List<String>> pickInputFiles({List<String>? allowedExtensions}) async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions:
+          allowedExtensions ??
+          <String>[
+            'aac',
+            'aif',
+            'aiff',
+            'caf',
+            'flac',
+            'm4a',
+            'm4b',
+            'mp3',
+            'ogg',
+            'opus',
+            'wav',
+          ],
+      allowMultiple: true,
+      withData: false,
+    );
+    if (result == null) {
+      return const <String>[];
+    }
+
+    return result.paths.whereType<String>().toList(growable: false);
   }
 
   Future<String?> pickOutputDirectory() async {
