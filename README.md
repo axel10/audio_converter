@@ -7,7 +7,11 @@
 如果是通过 GitHub Release 分发预编译产物，构建时会自动下载并解压：
 
 - iOS / macOS：自动拉取 `audio_converter-ffmpeg-*.zip`
-- Android：自动拉取对应 ABI 的 `audio_converter-ffmpeg-android-*.zip`
+- Android：默认只拉取 `arm64-v8a` 和 `armeabi-v7a` 对应的 `audio_converter-ffmpeg-android-*.zip`
+
+如果你确实需要 x86 / x86_64，可以在构建时显式指定：
+
+`AUDIO_CONVERTER_ANDROID_ABIS=arm64-v8a,armeabi-v7a,x86,x86_64`
 
 默认下载地址是：
 
@@ -35,6 +39,9 @@ tooling/package_ffmpeg_assets.sh
 - `audio_converter-ffmpeg-macos-x86_64.zip`
 - `audio_converter-ffmpeg-android-arm64-v8a.zip`
 - `audio_converter-ffmpeg-android-armeabi-v7a.zip`
+
+如果你启用了 Android 的 x86 支持，再额外上传：
+
 - `audio_converter-ffmpeg-android-x86.zip`
 - `audio_converter-ffmpeg-android-x86_64.zip`
 

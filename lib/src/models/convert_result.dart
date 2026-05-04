@@ -25,6 +25,32 @@ class ConvertResult {
   final String? stderr;
   final String? rawLog;
 
+  ConvertResult copyWith({
+    bool? success,
+    String? command,
+    String? outputPath,
+    String? engine,
+    AudioFormat? outputFormat,
+    String? errorCode,
+    String? errorMessage,
+    String? stdout,
+    String? stderr,
+    String? rawLog,
+  }) {
+    return ConvertResult(
+      success: success ?? this.success,
+      command: command ?? this.command,
+      outputPath: outputPath ?? this.outputPath,
+      engine: engine ?? this.engine,
+      outputFormat: outputFormat ?? this.outputFormat,
+      errorCode: errorCode ?? this.errorCode,
+      errorMessage: errorMessage ?? this.errorMessage,
+      stdout: stdout ?? this.stdout,
+      stderr: stderr ?? this.stderr,
+      rawLog: rawLog ?? this.rawLog,
+    );
+  }
+
   factory ConvertResult.fromMap(Map<Object?, Object?> map) {
     return ConvertResult(
       success: map['success'] as bool? ?? false,

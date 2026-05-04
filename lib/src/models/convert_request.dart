@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'audio_format.dart';
 import 'aac_encoder.dart';
 import 'bit_rate_mode.dart';
+import 'package:path/path.dart' as p;
 
 class ConvertRequest {
   const ConvertRequest({
@@ -30,6 +33,71 @@ class ConvertRequest {
   final bool allowFallbackToFfmpeg;
   final Map<String, String>? extraOptions;
   final List<String>? customArgs;
+
+  ConvertRequest copyWith({
+    String? inputPath,
+    String? outputPath,
+    AudioFormat? outputFormat,
+    int? sampleRate,
+    int? channels,
+    int? bitRate,
+    BitRateMode? bitRateMode,
+    String? ffmpegPath,
+    AacEncoder? aacEncoder,
+    bool? allowFallbackToFfmpeg,
+    Map<String, String>? extraOptions,
+    List<String>? customArgs,
+  }) {
+    return ConvertRequest(
+      inputPath: inputPath ?? this.inputPath,
+      outputPath: outputPath ?? this.outputPath,
+      outputFormat: outputFormat ?? this.outputFormat,
+      sampleRate: sampleRate ?? this.sampleRate,
+      channels: channels ?? this.channels,
+      bitRate: bitRate ?? this.bitRate,
+      bitRateMode: bitRateMode ?? this.bitRateMode,
+      ffmpegPath: ffmpegPath ?? this.ffmpegPath,
+      aacEncoder: aacEncoder ?? this.aacEncoder,
+      allowFallbackToFfmpeg:
+          allowFallbackToFfmpeg ?? this.allowFallbackToFfmpeg,
+      extraOptions: extraOptions ?? this.extraOptions,
+      customArgs: customArgs ?? this.customArgs,
+    );
+  }
+
+  factory ConvertRequest.forMobile({
+    required String inputPath,
+    required AudioFormat outputFormat,
+    int? sampleRate,
+    int? channels,
+    int? bitRate,
+    BitRateMode? bitRateMode,
+    String? ffmpegPath,
+    AacEncoder? aacEncoder,
+    bool allowFallbackToFfmpeg = true,
+    Map<String, String>? extraOptions,
+    List<String>? customArgs,
+  }) {
+    final baseName = p.basenameWithoutExtension(inputPath);
+    final tempDir = Directory(
+      p.join(Directory.systemTemp.path, 'audio_converter'),
+    );
+
+    return ConvertRequest(
+      inputPath: inputPath,
+      outputPath: p.join(tempDir.path, '$baseName.${outputFormat.value}'),
+      outputFormat: outputFormat,
+      sampleRate: sampleRate,
+      channels: channels,
+      bitRate: bitRate,
+      bitRateMode: bitRateMode,
+      ffmpegPath: ffmpegPath,
+      aacEncoder: aacEncoder,
+      allowFallbackToFfmpeg: allowFallbackToFfmpeg,
+      extraOptions: extraOptions,
+      customArgs: customArgs,
+    );
+  }
 
   Map<String, Object?> toMap() {
     return <String, Object?>{

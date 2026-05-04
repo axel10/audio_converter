@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:audio_converter/audio_converter.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -153,8 +152,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
   Future<void> _pickInputFile() async {
     _log('Opening input file picker...');
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
+    final filePath = await _converter.pickInputFile(
       allowedExtensions: <String>[
         'aac',
         'aif',
@@ -168,11 +166,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         'opus',
         'wav',
       ],
-      allowMultiple: false,
-      withData: false,
     );
-
-    final filePath = result?.files.single.path;
     if (!mounted) {
       return;
     }
@@ -201,7 +195,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     }
 
     _log('Opening output directory picker...');
-    final directory = await FilePicker.getDirectoryPath();
+    final directory = await _converter.pickOutputDirectory();
     if (directory == null || !mounted) {
       _log('Output directory picker was cancelled or returned no path.');
       return;
@@ -360,7 +354,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     final selectedFormat = _selectedFormat;
     if (inputPath == null || selectedFormat == null) {
       setState(() {
-        _status = 'Please pick an input file and output location first.';
+        _status = 'Please pick an input file first.';
       });
       _log(
         'Conversion blocked because input file or output format is missing.',
@@ -374,10 +368,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       });
       _log('Conversion blocked because output directory is missing.');
       return;
-    }
-
-    if (Platform.isIOS) {
-      _refreshOutputPreview();
     }
 
     final outputPath = _outputPath;
@@ -414,7 +404,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     setState(() {
       _isConverting = true;
       _status = Platform.isAndroid || Platform.isIOS
-          ? 'Converting to a temporary file, then a save dialog will open...'
+          ? 'Converting and opening the system save dialog...'
           : 'Converting...';
     });
     final conversionLog = Platform.isIOS || Platform.isMacOS
@@ -423,7 +413,16 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     _log(conversionLog);
 
     try {
-      final result = await _converter.convertFile(request);
+      final managedResult = Platform.isAndroid || Platform.isIOS
+          ? await _converter.convertAndSave(
+              request,
+              suggestedFileName: '$baseName.${selectedFormat.value}',
+            )
+          : ConvertAndSaveResult(
+              conversionResult: await _converter.convertFile(request),
+              savedPath: request.outputPath,
+            );
+      final result = managedResult.conversionResult;
       if (!mounted) return;
       _log(
         'Conversion completed: success=${result.success}, engine=${result.engine}, outputPath=${result.outputPath}, errorCode=${result.errorCode}, errorMessage=${result.errorMessage}',
@@ -433,68 +432,44 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         setState(() {
           _isConverting = false;
           _lastResult = result;
-          _status = 'Conversion failed. Check the log below for details.';
+          _status = managedResult.saveCancelled
+              ? 'Conversion finished, but the save dialog was cancelled.'
+              : 'Conversion failed. Check the log below for details.';
         });
         return;
       }
 
       if (Platform.isAndroid || Platform.isIOS) {
-        final tempPath = result.outputPath ?? outputPath;
-        final tempFile = File(tempPath);
-        if (!await tempFile.exists()) {
-          setState(() {
-            _isConverting = false;
-            _lastResult = result;
-            _status =
-                'Conversion finished, but the temporary output file was not found.';
-          });
-          return;
-        }
-
-        final bytes = await tempFile.readAsBytes();
-        final suggestedFileName = '$baseName.${selectedFormat.value}';
-        final savedPath = await FilePicker.saveFile(
-          fileName: suggestedFileName,
-          type: FileType.custom,
-          allowedExtensions: <String>[selectedFormat.value],
-          bytes: bytes,
-        );
-
-        if (!mounted) {
-          return;
-        }
-
-        try {
-          await tempFile.delete();
-        } catch (_) {
-          // Best-effort cleanup only.
-        }
-
         setState(() {
           _isConverting = false;
           _lastResult = result;
-          if (savedPath == null) {
+          if (managedResult.savedPath == null) {
+            _savedOutputPath = null;
+            _outputPath = null;
             _status = Platform.isAndroid
                 ? 'Conversion finished, but the SAF save dialog was cancelled.'
                 : 'Conversion finished, but the save dialog was cancelled.';
-            _log(
-              Platform.isAndroid
-                  ? 'SAF save dialog was cancelled.'
-                  : 'iOS save dialog was cancelled.',
-            );
-            return;
+          } else {
+            _savedOutputPath = managedResult.savedPath;
+            _outputPath = managedResult.outputPath;
+            _status = Platform.isAndroid
+                ? 'Converted successfully and saved via SAF.'
+                : 'Converted successfully and saved.';
           }
-          _savedOutputPath = savedPath;
-          _outputPath = tempPath;
-          _status = Platform.isAndroid
-              ? 'Converted successfully and saved via SAF.'
-              : 'Converted successfully and saved.';
         });
-        _log(
-          Platform.isAndroid
-              ? 'Converted file saved via SAF: $savedPath'
-              : 'Converted file saved via iOS save dialog: $savedPath',
-        );
+        if (managedResult.savedPath == null) {
+          _log(
+            Platform.isAndroid
+                ? 'SAF save dialog was cancelled.'
+                : 'iOS save dialog was cancelled.',
+          );
+        } else {
+          _log(
+            Platform.isAndroid
+                ? 'Converted file saved via SAF: ${managedResult.savedPath}'
+                : 'Converted file saved via iOS save dialog: ${managedResult.savedPath}',
+          );
+        }
         return;
       }
 
@@ -550,9 +525,9 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             const SizedBox(height: 4),
             SelectableText(
               Platform.isAndroid
-                  ? 'Android uses SAF to save after conversion.'
+                  ? 'Android and iOS save handling is managed by the plugin.'
                   : Platform.isIOS
-                  ? 'iOS writes to the app temp directory first, then opens a save dialog.'
+                  ? 'iOS save handling is managed by the plugin.'
                   : 'Output directory: ${_outputDirectory ?? 'Not selected'}',
             ),
             const SizedBox(height: 4),
@@ -730,7 +705,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             const SizedBox(height: 8),
             const Text(
               'Android does not request broad storage permission here. '
-              'Input files are picked through SAF, and the save dialog appears after conversion.',
+              'The plugin handles the input picker and the save dialog internally.',
             ),
           ],
         ),

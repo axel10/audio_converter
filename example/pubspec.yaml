@@ -30,7 +30,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  file_picker: ^11.0.2
   path: ^1.9.0
 
   audio_converter:
