@@ -24,11 +24,7 @@ pub(crate) fn output_format_key(value: &str) -> String {
     value.trim().to_lowercase()
 }
 
-pub(crate) fn output_sample_rate(
-    format: &str,
-    requested: Option<u32>,
-    fallback: u32,
-) -> u32 {
+pub(crate) fn output_sample_rate(format: &str, requested: Option<u32>, fallback: u32) -> u32 {
     let format = output_format_key(format);
     match format.as_str() {
         // libopus only accepts a small set of native rates. When callers do not
@@ -199,6 +195,9 @@ pub(crate) fn supported_output_formats() -> Vec<String> {
 }
 
 pub(crate) fn capabilities_notes() -> String {
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    let notes = "Uses the bundled Rust/FFmpeg build through rust-ffmpeg.".to_string();
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
     let mut notes = "Uses the bundled Rust/FFmpeg build through rust-ffmpeg.".to_string();
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {

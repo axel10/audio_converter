@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::frb_generated::StreamSink;
 use serde::{Deserialize, Serialize};
 
 fn normalize_output_format(value: &str) -> String {
@@ -21,7 +22,7 @@ pub(crate) struct AndroidConvertRequest {
     pub extra_options: Option<HashMap<String, String>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AndroidConvertResult {
     pub success: bool,
@@ -73,6 +74,71 @@ pub(crate) struct AndroidConverterCapabilities {
     pub supports_cancellation: bool,
     pub requires_external_binary: bool,
     pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConversionProgressEvent {
+    pub completed_files: usize,
+    pub total_files: usize,
+    pub current_file_path: String,
+    pub current_file_progress: Option<f64>,
+    pub current_position_us: Option<i64>,
+    pub total_duration_us: Option<i64>,
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum ConversionEvent {
+    Progress {
+        completed_files: usize,
+        total_files: usize,
+        current_file_path: String,
+        current_file_progress: Option<f64>,
+        current_position_us: Option<i64>,
+        total_duration_us: Option<i64>,
+        message: Option<String>,
+    },
+    Result {
+        result: AndroidConvertResult,
+    },
+}
+
+impl ConversionEvent {
+    pub(crate) fn progress(
+        completed_files: usize,
+        total_files: usize,
+        current_file_path: impl Into<String>,
+        current_file_progress: Option<f64>,
+        current_position_us: Option<i64>,
+        total_duration_us: Option<i64>,
+        message: Option<String>,
+    ) -> Self {
+        Self::Progress {
+            completed_files,
+            total_files,
+            current_file_path: current_file_path.into(),
+            current_file_progress,
+            current_position_us,
+            total_duration_us,
+            message,
+        }
+    }
+
+    pub(crate) fn result(result: AndroidConvertResult) -> Self {
+        Self::Result { result }
+    }
+}
+
+pub(crate) fn emit_conversion_event(sink: Option<&StreamSink<String>>, event: &ConversionEvent) {
+    let Some(sink) = sink else {
+        return;
+    };
+
+    if let Ok(payload) = serde_json::to_string(event) {
+        let _ = sink.add(payload);
+    }
 }
 
 pub(crate) fn failure_result(

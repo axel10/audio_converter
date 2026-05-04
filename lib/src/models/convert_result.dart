@@ -52,19 +52,20 @@ class ConvertResult {
   }
 
   factory ConvertResult.fromMap(Map<Object?, Object?> map) {
+    final outputFormatValue = map['outputFormat'] ?? map['output_format'];
     return ConvertResult(
       success: map['success'] as bool? ?? false,
       command: map['command'] as String?,
-      outputPath: map['outputPath'] as String?,
+      outputPath: (map['outputPath'] ?? map['output_path']) as String?,
       engine: map['engine'] as String?,
-      outputFormat: map['outputFormat'] == null
+      outputFormat: outputFormatValue == null
           ? null
-          : audioFormatFromValue(map['outputFormat'] as String),
-      errorCode: map['errorCode'] as String?,
-      errorMessage: map['errorMessage'] as String?,
+          : audioFormatFromValue(outputFormatValue as String),
+      errorCode: (map['errorCode'] ?? map['error_code']) as String?,
+      errorMessage: (map['errorMessage'] ?? map['error_message']) as String?,
       stdout: map['stdout'] as String?,
       stderr: map['stderr'] as String?,
-      rawLog: map['rawLog'] as String?,
+      rawLog: (map['rawLog'] ?? map['raw_log']) as String?,
     );
   }
 }

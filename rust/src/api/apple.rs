@@ -2,6 +2,7 @@
 use std::ffi::{CStr, CString};
 #[cfg(target_os = "ios")]
 use std::os::raw::{c_char, c_int, c_void};
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 use std::path::Path;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use std::path::PathBuf;
@@ -10,9 +11,19 @@ use std::process::Command;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 use super::common::ensure_ffmpeg_initialized;
-use super::formats::{output_bitrate_mode, output_format_key};
+#[cfg(target_os = "macos")]
+use super::formats::output_bitrate_mode;
+use super::formats::output_format_key;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+use super::models::{
+    emit_conversion_event, AndroidConvertRequest, AndroidConvertResult, ConversionEvent,
+    ConversionFailure,
+};
+#[cfg(not(any(target_os = "ios", target_os = "macos")))]
 use super::models::{AndroidConvertRequest, AndroidConvertResult, ConversionFailure};
+use crate::frb_generated::StreamSink;
 
 #[cfg(target_os = "ios")]
 extern "C" {
@@ -52,6 +63,7 @@ pub(crate) fn should_use_apple_m4a_encoder(request: &AndroidConvertRequest) -> b
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub(crate) fn transcode_apple_m4a(
     request: &AndroidConvertRequest,
+    progress_sink: Option<&StreamSink<String>>,
 ) -> Result<AndroidConvertResult, ConversionFailure> {
     ensure_ffmpeg_initialized().map_err(ConversionFailure::from)?;
 
@@ -72,8 +84,32 @@ pub(crate) fn transcode_apple_m4a(
         wav_request.bit_rate = None;
         wav_request.bit_rate_mode = None;
 
-        super::transcoder::transcode_direct(&wav_request)?;
+        emit_conversion_event(
+            progress_sink,
+            &ConversionEvent::progress(
+                0,
+                1,
+                request.input_path.clone(),
+                Some(0.0),
+                Some(0),
+                None,
+                Some("Transcoding to temporary WAV".to_string()),
+            ),
+        );
+        super::transcoder::transcode_direct(&wav_request, progress_sink)?;
 
+        emit_conversion_event(
+            progress_sink,
+            &ConversionEvent::progress(
+                0,
+                1,
+                request.input_path.clone(),
+                Some(1.0),
+                None,
+                None,
+                Some("Encoding final M4A container".to_string()),
+            ),
+        );
         let apple_result = encode_apple_m4a(&temporary_wav_path, &output_path, request)
             .map_err(ConversionFailure::from)?;
         let engine = format!("rust-ffmpeg+{}", apple_result.engine);
@@ -101,8 +137,10 @@ pub(crate) fn transcode_apple_m4a(
 #[cfg(not(any(target_os = "ios", target_os = "macos")))]
 pub(crate) fn transcode_apple_m4a(
     request: &AndroidConvertRequest,
+    progress_sink: Option<&StreamSink<String>>,
 ) -> Result<AndroidConvertResult, ConversionFailure> {
     let _ = request;
+    let _ = progress_sink;
     unreachable!("Apple M4A encoder is only used on iOS and macOS")
 }
 

@@ -59,6 +59,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   bool _loadingCapabilities = true;
   bool _isBatchConverting = false;
   bool _usingDefaultFfmpegPath = true;
+  ConversionProgress? _conversionProgress;
 
   @override
   void initState() {
@@ -236,6 +237,54 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     return null;
   }
 
+  String _formatDuration(Duration? duration) {
+    if (duration == null) {
+      return '--:--';
+    }
+
+    final totalSeconds = duration.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    final minuteText = minutes.toString().padLeft(2, '0');
+    final secondText = seconds.toString().padLeft(2, '0');
+
+    if (hours > 0) {
+      return '$hours:$minuteText:$secondText';
+    }
+
+    return '$minutes:$secondText';
+  }
+
+  void _handleBatchProgress(ConversionProgress progress) {
+    if (!mounted) {
+      return;
+    }
+
+    final currentFileName = p.basename(progress.currentFilePath);
+    final currentPosition = _formatDuration(progress.currentPosition);
+    final totalDuration = _formatDuration(progress.totalDuration);
+    final currentIndex = progress.currentFileIndex;
+    final overallPercent = progress.overallProgress;
+    final overallText = overallPercent == null
+        ? ''
+        : ' ${(overallPercent * 100).clamp(0, 100).toStringAsFixed(1)}%';
+    final filePercent = progress.currentFileProgress;
+    final filePercentText = filePercent == null
+        ? ''
+        : ' ${(filePercent * 100).clamp(0, 100).toStringAsFixed(1)}%';
+
+    setState(() {
+      _conversionProgress = progress;
+      _status =
+          progress.message ??
+          'Converting $currentIndex/${progress.totalFiles}: $currentFileName'
+              '$filePercentText'
+              '${progress.currentPosition != null ? ' ($currentPosition / $totalDuration)' : ''}'
+              '$overallText';
+    });
+  }
+
   List<String> _currentInputPaths() {
     if (_inputPaths.isNotEmpty) {
       return _inputPaths;
@@ -409,13 +458,17 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       _isBatchConverting = true;
       _status = 'Batch converting ${requests.length} files...';
       _lastResult = null;
+      _conversionProgress = null;
     });
     _log(
       'Starting batch conversion: count=${requests.length}, outputDirectory=$outputDirectory, format=${selectedFormat.value}',
     );
 
     try {
-      final results = await _converter.convertFiles(requests);
+      final results = await _converter.convertFiles(
+        requests,
+        onProgress: _handleBatchProgress,
+      );
       if (!mounted) return;
 
       final successCount = results.where((result) => result.success).length;
@@ -426,6 +479,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             ? 'Batch conversion completed successfully.'
             : 'Batch conversion finished with $successCount success(es) and $failureCount failure(s).';
         _lastResult = results.isEmpty ? null : results.last;
+        _conversionProgress = results.isEmpty ? null : _conversionProgress;
       });
       _log(
         'Batch conversion completed: total=${results.length}, success=$successCount, failure=$failureCount',
@@ -718,9 +772,9 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
   Widget _buildLogCard() {
     final result = _lastResult;
-    debugPrint(result?.rawLog);
     final hasResult = result != null;
     final hasLogs = _logEntries.isNotEmpty;
+    debugPrint("raw log: ${result?.rawLog}");
     if (!hasResult && !hasLogs) {
       return const SizedBox.shrink();
     }
@@ -758,6 +812,79 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     );
   }
 
+  Widget _buildProgressCard() {
+    final progress = _conversionProgress;
+    if (progress == null && !_isBatchConverting) {
+      return const SizedBox.shrink();
+    }
+
+    final currentFileName = progress == null
+        ? 'Not started'
+        : p.basename(progress.currentFilePath);
+    final currentPosition = progress == null
+        ? null
+        : _formatDuration(progress.currentPosition);
+    final totalDuration = progress == null
+        ? null
+        : _formatDuration(progress.totalDuration);
+    final currentFilePercent = progress?.currentFileProgress == null
+        ? null
+        : (progress!.currentFileProgress! * 100)
+              .clamp(0, 100)
+              .toStringAsFixed(1);
+    final currentStage = progress?.message;
+    final currentFileValue = progress?.currentFileProgress;
+    final overallValue = progress?.overallProgress;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Progress', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              progress == null
+                  ? 'Waiting for the next batch.'
+                  : 'File ${progress.currentFileIndex}/${progress.totalFiles}: $currentFileName',
+            ),
+            if (currentStage != null) ...[
+              const SizedBox(height: 4),
+              Text('Stage: $currentStage'),
+            ],
+            if (currentFilePercent != null) ...[
+              const SizedBox(height: 4),
+              Text('Song progress: $currentFilePercent%'),
+            ],
+            if (progress != null && progress.currentPosition != null) ...[
+              const SizedBox(height: 4),
+              Text('Song position: $currentPosition / $totalDuration'),
+            ],
+            if (progress != null) ...[
+              const SizedBox(height: 8),
+              LinearProgressIndicator(value: currentFileValue, minHeight: 8),
+              const SizedBox(height: 4),
+              Text(
+                currentFileValue == null
+                    ? 'Song progress: calculating'
+                    : 'Song progress bar: ${(currentFileValue * 100).clamp(0, 100).toStringAsFixed(1)}%',
+              ),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(value: overallValue, minHeight: 8),
+              const SizedBox(height: 4),
+              Text(
+                overallValue == null
+                    ? 'Overall: calculating'
+                    : 'Overall: ${(overallValue * 100).clamp(0, 100).toStringAsFixed(1)}%',
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -785,6 +912,8 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
           _buildSettingsCard(),
           const SizedBox(height: 12),
           _buildCapabilitiesCard(),
+          const SizedBox(height: 12),
+          _buildProgressCard(),
           const SizedBox(height: 12),
           _buildLogCard(),
           const SizedBox(height: 12),

@@ -1,3 +1,4 @@
+use ffmpeg::util::mathematics::{rescale::TIME_BASE, Rescale};
 use ffmpeg::{codec, filter, format, frame, media, Dictionary};
 use ffmpeg_next as ffmpeg;
 
@@ -11,9 +12,14 @@ use super::formats::{
     output_channel_layout, output_format_key, output_sample_format, output_sample_rate,
     uses_lossy_bitrate_controls,
 };
-use super::models::{AndroidConvertRequest, AndroidConvertResult, ConversionFailure};
+use super::models::{
+    emit_conversion_event, AndroidConvertRequest, AndroidConvertResult, ConversionEvent,
+    ConversionFailure,
+};
+use crate::frb_generated::StreamSink;
 
-struct Transcoder {
+struct Transcoder<'a> {
+    input_path: String,
     stream_index: usize,
     output_stream_index: usize,
     output_format_key: String,
@@ -28,13 +34,25 @@ struct Transcoder {
     decoded_frame_logs: usize,
     filtered_frame_logs: usize,
     encoded_packet_logs: usize,
+    input_duration_us: Option<i64>,
+    input_sample_rate: u32,
+    decoded_sample_count: u64,
+    progress_sink: Option<&'a StreamSink<String>>,
+    last_reported_position_us: Option<i64>,
+    last_reported_fraction: f64,
+    progress_debug_logs: usize,
+    progress_emit_logs: usize,
 }
 
-fn build_transcoder(
+const PROGRESS_EMIT_INTERVAL_US: i64 = 100_000;
+const PROGRESS_EMIT_FRACTION_STEP: f64 = 0.002;
+
+fn build_transcoder<'a>(
     ictx: &mut format::context::Input,
     octx: &mut format::context::Output,
     request: &AndroidConvertRequest,
-) -> Result<Transcoder, String> {
+    progress_sink: Option<&'a StreamSink<String>>,
+) -> Result<Transcoder<'a>, String> {
     let input_stream = ictx
         .streams()
         .best(media::Type::Audio)
@@ -49,6 +67,10 @@ fn build_transcoder(
     decoder
         .set_parameters(input_stream.parameters())
         .map_err(|error| error.to_string())?;
+    // Keep decoder timestamp interpretation explicit so frame timestamps can be
+    // traced back to the packet time base we feed into the decoder.
+    let decoder_time_base = decoder.time_base();
+    decoder.set_packet_time_base(decoder_time_base);
 
     let output_format_key = output_format_key(&request.output_format);
     let codec_spec = codec_spec_for_format(&output_format_key)
@@ -73,11 +95,7 @@ fn build_transcoder(
         .audio()
         .map_err(|error| error.to_string())?;
 
-    let sample_rate = output_sample_rate(
-        &output_format_key,
-        request.sample_rate,
-        decoder.rate(),
-    );
+    let sample_rate = output_sample_rate(&output_format_key, request.sample_rate, decoder.rate());
     let channel_layout = output_channel_layout(
         request.channels,
         decoder.channel_layout(),
@@ -117,8 +135,8 @@ fn build_transcoder(
         }
     }
 
-    let use_opus_vbr = output_format_key == "opus"
-        && matches!(output_bitrate_mode(request), Some("vbr"));
+    let use_opus_vbr =
+        output_format_key == "opus" && matches!(output_bitrate_mode(request), Some("vbr"));
     let encoder = if use_opus_vbr {
         let mut options = Dictionary::new();
         options.set("vbr", "on");
@@ -132,9 +150,16 @@ fn build_transcoder(
     stream.set_parameters(&encoder);
 
     let filter = build_filter_graph(&decoder, &encoder)?;
-    let decoder_time_base = decoder.time_base();
     let encoder_time_base = encoder.time_base();
     let out_time_base = stream.time_base();
+    let input_sample_rate = decoder.rate();
+    let input_duration_us = match ictx.duration() {
+        duration if duration > 0 => Some(duration),
+        _ => match input_stream.duration() {
+            duration if duration > 0 => Some(duration.rescale(input_stream.time_base(), TIME_BASE)),
+            _ => None,
+        },
+    };
     let mut debug_log = String::new();
     push_log_line(
         &mut debug_log,
@@ -152,9 +177,18 @@ fn build_transcoder(
     push_log_line(
         &mut debug_log,
         format!(
-            "decoder stream_index={} time_base={} rate={} format={} layout={} decoder_channels={} bit_rate={}",
+            "decoder stream_index={} stream_time_base={} codec_time_base={} packet_time_base={} stream_start_time={} stream_duration={} container_duration_us={:?} resolved_duration_us={:?} rate={} format={} layout={} decoder_channels={} bit_rate={}",
             input_stream.index(),
+            input_stream.time_base(),
             decoder.time_base(),
+            decoder.packet_time_base(),
+            input_stream.start_time(),
+            input_stream.duration(),
+            match ictx.duration() {
+                duration if duration > 0 => Some(duration),
+                _ => None,
+            },
+            input_duration_us,
             decoder.rate(),
             decoder.format().name(),
             describe_channel_layout(decoder.channel_layout()),
@@ -193,6 +227,15 @@ fn build_transcoder(
         decoded_frame_logs: 0,
         filtered_frame_logs: 0,
         encoded_packet_logs: 0,
+        input_path: request.input_path.clone(),
+        input_duration_us,
+        input_sample_rate,
+        decoded_sample_count: 0,
+        progress_sink,
+        last_reported_position_us: None,
+        last_reported_fraction: -1.0,
+        progress_debug_logs: 0,
+        progress_emit_logs: 0,
     })
 }
 
@@ -269,7 +312,133 @@ fn build_filter_graph(
     Ok(graph)
 }
 
-impl Transcoder {
+impl<'a> Transcoder<'a> {
+    fn position_from_samples(&self, sample_count: u64) -> Option<i64> {
+        let rate = self.input_sample_rate;
+        if rate == 0 {
+            return None;
+        }
+
+        let micros = (sample_count as i128).saturating_mul(1_000_000_i128) / i128::from(rate);
+        Some(micros.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64)
+    }
+
+    fn fallback_position_us(&self, decoded_samples: usize) -> Option<i64> {
+        self.position_from_samples(
+            self.decoded_sample_count
+                .saturating_add(decoded_samples as u64),
+        )
+    }
+
+    fn log_progress_decision(
+        &mut self,
+        frame_timestamp: Option<i64>,
+        frame_position_us: Option<i64>,
+        sample_position_us: Option<i64>,
+        chosen_position_us: Option<i64>,
+        chosen_source: &str,
+        total_duration_us: Option<i64>,
+    ) {
+        if self.progress_debug_logs >= debug_frame_limit() {
+            return;
+        }
+
+        push_log_line(
+            &mut self.debug_log,
+            format!(
+                "progress_debug[{}] frame_timestamp={} frame_position_us={:?} sample_position_us={:?} chosen_position_us={:?} source={} total_duration_us={:?} decoded_sample_count={} last_reported_position_us={:?}",
+                self.progress_debug_logs,
+                frame_timestamp
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                frame_position_us,
+                sample_position_us,
+                chosen_position_us,
+                chosen_source,
+                total_duration_us,
+                self.decoded_sample_count,
+                self.last_reported_position_us,
+            ),
+        );
+        self.progress_debug_logs += 1;
+    }
+
+    fn emit_progress(
+        &mut self,
+        current_position_us: Option<i64>,
+        message: Option<String>,
+        force: bool,
+    ) {
+        let total_duration_us = self.input_duration_us;
+        let current_file_progress = match (current_position_us, total_duration_us) {
+            (Some(position), Some(total)) if total > 0 => {
+                Some((position as f64 / total as f64).clamp(0.0, 1.0))
+            }
+            _ => None,
+        };
+
+        let should_emit = force
+            || match (current_position_us, self.last_reported_position_us) {
+                (Some(position), Some(last)) => position - last >= PROGRESS_EMIT_INTERVAL_US,
+                (Some(_), None) => true,
+                (None, None) => force,
+                _ => false,
+            }
+            || match current_file_progress {
+                Some(progress) => {
+                    self.last_reported_fraction < 0.0
+                        || (progress - self.last_reported_fraction).abs()
+                            >= PROGRESS_EMIT_FRACTION_STEP
+                }
+                None => force,
+            };
+
+        if !should_emit {
+            return;
+        }
+
+        if let Some(position) = current_position_us {
+            self.last_reported_position_us = Some(position);
+        }
+        if let Some(progress) = current_file_progress {
+            self.last_reported_fraction = progress;
+        }
+
+        if self.progress_emit_logs < debug_frame_limit() {
+            push_log_line(
+                &mut self.debug_log,
+                format!(
+                    "progress_emit[{}] position_us={:?} progress={:?} message={:?} force={} last_position_us={:?} last_fraction={}",
+                    self.progress_emit_logs,
+                    current_position_us,
+                    current_file_progress,
+                    message,
+                    force,
+                    self.last_reported_position_us,
+                    self.last_reported_fraction,
+                ),
+            );
+            self.progress_emit_logs += 1;
+        }
+
+        emit_conversion_event(
+            self.progress_sink,
+            &ConversionEvent::progress(
+                0,
+                1,
+                self.input_path.clone(),
+                current_file_progress,
+                current_position_us,
+                total_duration_us,
+                message,
+            ),
+        );
+    }
+
+    fn report_stage(&mut self, message: impl Into<String>) {
+        self.emit_progress(None, Some(message.into()), true);
+    }
+
     fn finish_debug_log(mut self) -> String {
         push_log_line(
             &mut self.debug_log,
@@ -318,8 +487,21 @@ impl Transcoder {
         loop {
             match self.decoder.receive_frame(&mut decoded) {
                 Ok(()) => {
-                    let timestamp = decoded.timestamp();
-                    decoded.set_pts(timestamp);
+                    let frame_timestamp = decoded.timestamp();
+                    decoded.set_pts(frame_timestamp);
+                    let frame_position_us = frame_timestamp
+                        .map(|value| value.rescale(self.decoder_time_base, TIME_BASE));
+                    let sample_position_us = self.fallback_position_us(decoded.samples());
+                    let (current_position_us, position_source) =
+                        match (frame_position_us, sample_position_us) {
+                            (Some(frame), Some(sample)) if frame >= 0 => {
+                                (Some(frame.max(sample)), "frame_or_sample_max")
+                            }
+                            (Some(frame), _) if frame >= 0 => (Some(frame), "frame_timestamp"),
+                            (_, Some(sample)) => (Some(sample), "sample_fallback"),
+                            (Some(frame), _) => (Some(frame), "negative_frame_timestamp"),
+                            _ => (None, "missing"),
+                        };
                     if self.decoded_frame_logs < debug_frame_limit() {
                         push_log_line(
                             &mut self.debug_log,
@@ -331,6 +513,22 @@ impl Transcoder {
                         );
                         self.decoded_frame_logs += 1;
                     }
+                    self.log_progress_decision(
+                        frame_timestamp,
+                        frame_position_us,
+                        sample_position_us,
+                        current_position_us,
+                        position_source,
+                        self.input_duration_us,
+                    );
+                    self.emit_progress(
+                        current_position_us,
+                        Some("Transcoding audio".to_string()),
+                        false,
+                    );
+                    self.decoded_sample_count = self
+                        .decoded_sample_count
+                        .saturating_add(decoded.samples() as u64);
                     self.add_frame_to_filter(&decoded)?;
                     self.get_and_process_filtered_frames(octx)?;
                 }
@@ -474,6 +672,7 @@ impl Transcoder {
 
 pub(crate) fn transcode_direct(
     request: &AndroidConvertRequest,
+    progress_sink: Option<&StreamSink<String>>,
 ) -> Result<AndroidConvertResult, ConversionFailure> {
     ensure_ffmpeg_initialized().map_err(ConversionFailure::from)?;
 
@@ -508,6 +707,20 @@ pub(crate) fn transcode_direct(
         }
     }
 
+    if progress_sink.is_some() {
+        emit_conversion_event(
+            progress_sink,
+            &ConversionEvent::progress(
+                0,
+                1,
+                input_path.clone(),
+                Some(0.0),
+                Some(0),
+                None,
+                Some("Opening input file".to_string()),
+            ),
+        );
+    }
     push_log_line(
         &mut debug_log,
         format!("stage=open_input path={input_path}"),
@@ -523,12 +736,13 @@ pub(crate) fn transcode_direct(
         ConversionFailure::with_log(format!("open_output failed: {error}"), debug_log.clone())
     })?;
     push_log_line(&mut debug_log, "stage=build_transcoder");
-    let mut transcoder = build_transcoder(&mut ictx, &mut octx, request).map_err(|error| {
-        ConversionFailure::with_log(
-            format!("build_transcoder failed: {error}"),
-            debug_log.clone(),
-        )
-    })?;
+    let mut transcoder =
+        build_transcoder(&mut ictx, &mut octx, request, progress_sink).map_err(|error| {
+            ConversionFailure::with_log(
+                format!("build_transcoder failed: {error}"),
+                debug_log.clone(),
+            )
+        })?;
 
     octx.set_metadata(ictx.metadata().to_owned());
     push_log_line(&mut transcoder.debug_log, "stage=write_header");
@@ -538,6 +752,7 @@ pub(crate) fn transcode_direct(
             transcoder.debug_log.clone(),
         )
     })?;
+    transcoder.report_stage("Encoding audio");
 
     for (stream, mut packet) in ictx.packets() {
         if stream.index() == transcoder.stream_index {
