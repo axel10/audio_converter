@@ -53,12 +53,10 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   String? _inputPath;
   List<String> _inputPaths = <String>[];
   String? _outputDirectory;
-  String? _outputPath;
   ConvertResult? _lastResult;
   final List<String> _logEntries = <String>[];
   String _status = 'Ready.';
   bool _loadingCapabilities = true;
-  bool _isConverting = false;
   bool _isBatchConverting = false;
   bool _usingDefaultFfmpegPath = true;
 
@@ -151,44 +149,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     return capabilities.supportedOutputFormats;
   }
 
-  Future<void> _pickInputFile() async {
-    _log('Opening input file picker...');
-    final filePath = await _converter.pickInputFile(
-      allowedExtensions: <String>[
-        'aac',
-        'aif',
-        'aiff',
-        'caf',
-        'flac',
-        'm4a',
-        'm4b',
-        'mp3',
-        'ogg',
-        'opus',
-        'wav',
-      ],
-    );
-    if (!mounted) {
-      return;
-    }
-
-    if (filePath == null) {
-      setState(() {
-        _status =
-            'Input file selection was cancelled or the picker returned no path.';
-      });
-      _log('Input file picker was cancelled or returned no path.');
-      return;
-    }
-
-    setState(() {
-      _inputPath = filePath;
-      _status = 'Input file selected.';
-      _refreshOutputPreview();
-    });
-    _log('Input file selected: $filePath');
-  }
-
   Future<void> _pickInputFiles() async {
     _log('Opening multi-file picker...');
     final filePaths = await _converter.pickInputFiles(
@@ -238,7 +198,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
     setState(() {
       _outputDirectory = directory;
-      _outputPath = null;
       _status = 'Output directory selected.';
       _refreshOutputPreview();
     });
@@ -250,18 +209,16 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         _inputPath ?? (_inputPaths.isNotEmpty ? _inputPaths.first : null);
     final selectedFormat = _selectedFormat;
     if (inputPath == null || selectedFormat == null) {
-      _outputPath = null;
       return;
     }
 
     final baseName = p.basenameWithoutExtension(inputPath);
     final outputDirectory = _outputDirectory;
     if (outputDirectory == null) {
-      _outputPath = null;
       return;
     }
 
-    _outputPath = p.join(outputDirectory, '$baseName.${selectedFormat.value}');
+    p.join(outputDirectory, '$baseName.${selectedFormat.value}');
   }
 
   String? get _previewOutputPath {
@@ -381,115 +338,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     };
   }
 
-  Future<void> _convert() async {
-    final inputPaths = _currentInputPaths();
-    if (inputPaths.length > 1) {
-      _log(
-        'Multiple inputs are selected; routing the single-file action through batch conversion.',
-      );
-      await _convertBatch();
-      return;
-    }
-
-    final inputPath = _inputPath;
-    final selectedFormat = _selectedFormat;
-    if (inputPath == null || selectedFormat == null) {
-      setState(() {
-        _status = 'Please pick an input file and output directory first.';
-      });
-      _log(
-        'Conversion blocked because input file or output format is missing.',
-      );
-      return;
-    }
-
-    if (_outputDirectory == null) {
-      setState(() {
-        _status = 'Please pick an output directory first.';
-      });
-      _log('Conversion blocked because output directory is missing.');
-      return;
-    }
-
-    _refreshOutputPreview();
-
-    final outputPath = _outputPath;
-    if (outputPath == null) {
-      setState(() {
-        _status = 'Output path is not ready yet.';
-      });
-      _log('Conversion blocked because output path could not be resolved.');
-      return;
-    }
-
-    final bitRate = int.tryParse(_bitRateController.text.trim());
-    final customArgs = (Platform.isWindows || Platform.isLinux)
-        ? _parseCustomArgs(_customArgsController.text.trim())
-        : const <String>[];
-    final ffmpegPath =
-        (Platform.isWindows || Platform.isLinux) && !_usingDefaultFfmpegPath
-        ? (_ffmpegPathController.text.trim().isEmpty
-              ? null
-              : _ffmpegPathController.text.trim())
-        : null;
-    final request = ConvertRequest(
-      inputPath: inputPath,
-      outputPath: outputPath,
-      outputFormat: selectedFormat,
-      bitRate: bitRate,
-      bitRateMode: _bitRateMode,
-      ffmpegPath: ffmpegPath,
-      aacEncoder: _aacEncoder,
-      customArgs: customArgs.isEmpty ? null : customArgs,
-    );
-
-    setState(() {
-      _isConverting = true;
-      _status = 'Converting...';
-    });
-    final conversionLog = Platform.isIOS || Platform.isMacOS
-        ? 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, engine=rust-ffmpeg+Apple encoder for m4a'
-        : 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, aacEncoder=${_aacEncoder.value}, ffmpegPath=${request.ffmpegPath ?? "default"}, customArgs=${customArgs.isEmpty ? "[]" : customArgs.join(" ")}';
-    _log(conversionLog);
-
-    try {
-      final result = await _converter.convertFile(request);
-      if (!mounted) return;
-      _log(
-        'Conversion completed: success=${result.success}, engine=${result.engine}, outputPath=${result.outputPath}, errorCode=${result.errorCode}, errorMessage=${result.errorMessage}',
-      );
-
-      if (!result.success) {
-        setState(() {
-          _isConverting = false;
-          _lastResult = result;
-          _status = 'Conversion failed. Check the log below for details.';
-        });
-        return;
-      }
-
-      setState(() {
-        _isConverting = false;
-        _lastResult = result;
-        _outputPath = result.outputPath;
-        _status = 'Converted successfully.';
-      });
-      _log('Conversion succeeded with engine=${result.engine}.');
-    } catch (error, stackTrace) {
-      if (!mounted) return;
-      setState(() {
-        _isConverting = false;
-        _lastResult = null;
-        _status = 'Conversion threw an exception: $error';
-      });
-      _log(
-        'Conversion threw an exception',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
   List<ConvertRequest> _buildBatchRequests({
     required List<String> inputPaths,
     required AudioFormat outputFormat,
@@ -578,9 +426,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             ? 'Batch conversion completed successfully.'
             : 'Batch conversion finished with $successCount success(es) and $failureCount failure(s).';
         _lastResult = results.isEmpty ? null : results.last;
-        if (results.isNotEmpty && results.last.outputPath != null) {
-          _outputPath = results.last.outputPath;
-        }
       });
       _log(
         'Batch conversion completed: total=${results.length}, success=$successCount, failure=$failureCount',
@@ -613,11 +458,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
               runSpacing: 12,
               children: [
                 FilledButton.icon(
-                  onPressed: _pickInputFile,
-                  icon: const Icon(Icons.audio_file),
-                  label: const Text('Choose input file'),
-                ),
-                FilledButton.icon(
                   onPressed: _pickInputFiles,
                   icon: const Icon(Icons.library_music),
                   label: const Text('Choose input files'),
@@ -633,7 +473,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             SelectableText(
               _inputPaths.isNotEmpty
                   ? 'Inputs (${_inputPaths.length}): ${_inputPaths.join(', ')}'
-                  : 'Input: ${_inputPath ?? 'Not selected'}',
+                  : 'Inputs: Not selected',
             ),
             const SizedBox(height: 4),
             SelectableText(
@@ -784,18 +624,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
               runSpacing: 12,
               children: [
                 FilledButton.icon(
-                  onPressed: _isConverting || _isBatchConverting
-                      ? null
-                      : _convert,
-                  icon: const Icon(Icons.play_arrow),
-                  label: Text(
-                    _isConverting ? 'Converting...' : 'Start conversion',
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: _isConverting || _isBatchConverting
-                      ? null
-                      : _convertBatch,
+                  onPressed: _isBatchConverting ? null : _convertBatch,
                   icon: const Icon(Icons.playlist_play),
                   label: Text(
                     _isBatchConverting
