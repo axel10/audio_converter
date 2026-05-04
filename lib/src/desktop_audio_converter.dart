@@ -94,7 +94,10 @@ class DesktopAudioConverter {
 
       onProgress?.call(
         ConversionProgress(
-          completedFiles: completedBefore + 1,
+          // Keep completedFiles anchored to the file that just finished.
+          // This preserves the batch fraction: after file 1 of 4 completes,
+          // overall progress should be 1/4, not 2/4.
+          completedFiles: completedBefore,
           totalFiles: requests.length,
           currentFilePath: request.inputPath,
           currentFileProgress: 1,

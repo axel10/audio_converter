@@ -7,7 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import 'src/desktop_audio_converter.dart';
+import 'src/models/aac_encoder.dart';
 import 'src/models/android_output_directory.dart';
+import 'src/models/audio_format.dart';
+import 'src/models/bit_rate_mode.dart';
 import 'src/models/convert_and_save_result.dart';
 import 'src/models/convert_request.dart';
 import 'src/models/conversion_progress.dart';
@@ -124,6 +127,46 @@ class AudioConverter {
     return AndroidOutputDirectory.fromMap(result);
   }
 
+  String buildOutputPath({
+    required String inputPath,
+    required String outputDirectory,
+    required AudioFormat outputFormat,
+    bool ensureUnique = true,
+  }) {
+    final normalizedOutputDirectory = outputDirectory.trim();
+    final baseName = p.basenameWithoutExtension(inputPath);
+    final ext = outputFormat.value;
+    final preferredPath = p.join(normalizedOutputDirectory, '$baseName.$ext');
+    if (!ensureUnique || !File(preferredPath).existsSync()) {
+      return preferredPath;
+    }
+
+    for (var index = 1; index < 1000; index++) {
+      final candidate = p.join(
+        normalizedOutputDirectory,
+        '$baseName ($index).$ext',
+      );
+      if (!File(candidate).existsSync()) {
+        return candidate;
+      }
+    }
+
+    return preferredPath;
+  }
+
+  String buildPreviewOutputPath({
+    required String inputPath,
+    required String outputDirectory,
+    required AudioFormat outputFormat,
+  }) {
+    return buildOutputPath(
+      inputPath: inputPath,
+      outputDirectory: outputDirectory,
+      outputFormat: outputFormat,
+      ensureUnique: false,
+    );
+  }
+
   Future<String?> saveFileToAndroidDirectory({
     required AndroidOutputDirectory directory,
     required String sourcePath,
@@ -194,6 +237,54 @@ class AudioConverter {
         saveErrorMessage: 'Android export failed: $error',
       );
     }
+  }
+
+  Future<ConvertAndSaveResult> convertToOutputDirectory({
+    required String inputPath,
+    required String outputDirectory,
+    required AudioFormat outputFormat,
+    int? sampleRate,
+    int? channels,
+    int? bitRate,
+    BitRateMode? bitRateMode,
+    String? ffmpegPath,
+    AacEncoder? aacEncoder,
+    bool allowFallbackToFfmpeg = true,
+    Map<String, String>? extraOptions,
+    List<String>? customArgs,
+    AndroidOutputDirectory? androidOutputDirectory,
+    AudioConverterProgressCallback? onProgress,
+  }) async {
+    final request = ConvertRequest.forOutputDirectory(
+      inputPath: inputPath,
+      outputDirectory: outputDirectory,
+      outputFormat: outputFormat,
+      sampleRate: sampleRate,
+      channels: channels,
+      bitRate: bitRate,
+      bitRateMode: bitRateMode,
+      ffmpegPath: ffmpegPath,
+      aacEncoder: aacEncoder,
+      allowFallbackToFfmpeg: allowFallbackToFfmpeg,
+      extraOptions: extraOptions,
+      customArgs: customArgs,
+    );
+
+    if (Platform.isAndroid && androidOutputDirectory != null) {
+      return convertAndSaveToAndroidDirectory(
+        request,
+        androidOutputDirectory,
+        onProgress: onProgress,
+      );
+    }
+
+    final result = await convertFile(request, onProgress: onProgress);
+    return ConvertAndSaveResult(
+      conversionResult: result,
+      savedPath: result.outputPath,
+      temporaryPath: result.outputPath,
+      saveCancelled: false,
+    );
   }
 
   Future<ConvertAndSaveResult> convertAndSave(ConvertRequest request) async {

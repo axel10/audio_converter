@@ -237,8 +237,11 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     if (inputPath != null &&
         outputDirectory != null &&
         selectedFormat != null) {
-      final baseName = p.basenameWithoutExtension(inputPath);
-      return p.join(outputDirectory, '$baseName.${selectedFormat.value}');
+      return _converter.buildPreviewOutputPath(
+        inputPath: inputPath,
+        outputDirectory: outputDirectory,
+        outputFormat: selectedFormat,
+      );
     }
 
     return null;
@@ -450,37 +453,45 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
               ? null
               : _ffmpegPathController.text.trim())
         : null;
-    final requests = _buildBatchRequests(
-      inputPaths: inputPaths,
-      outputFormat: selectedFormat,
-      outputDirectory: outputDirectory,
-      bitRate: bitRate,
-      bitRateMode: _bitRateMode,
-      aacEncoder: _aacEncoder,
-      ffmpegPath: ffmpegPath,
-      customArgs: customArgs,
-    );
 
     setState(() {
       _isBatchConverting = true;
-      _status = 'Batch converting ${requests.length} files...';
+      _status = 'Batch converting ${inputPaths.length} files...';
       _lastResult = null;
       _conversionProgress = null;
     });
     _log(
-      'Starting batch conversion: count=${requests.length}, outputDirectory=$outputDirectory, firstOutputPath=${requests.isNotEmpty ? requests.first.outputPath : 'n/a'}, format=${selectedFormat.value}',
+      'Starting batch conversion: count=${inputPaths.length}, outputDirectory=$outputDirectory, format=${selectedFormat.value}',
     );
 
     try {
       if (Platform.isAndroid && _androidOutputDirectory != null) {
         final results = <ConvertAndSaveResult>[];
-        for (final request in requests) {
-          final result = await _converter.convertAndSaveToAndroidDirectory(
-            request,
-            _androidOutputDirectory!,
-            onProgress: _handleBatchProgress,
+        for (var index = 0; index < inputPaths.length; index++) {
+          final result = await _converter.convertToOutputDirectory(
+            inputPath: inputPaths[index],
+            outputDirectory: outputDirectory,
+            outputFormat: selectedFormat,
+            bitRate: bitRate,
+            bitRateMode: _bitRateMode,
+            aacEncoder: _aacEncoder,
+            ffmpegPath: ffmpegPath,
+            customArgs: customArgs.isEmpty ? null : customArgs,
+            androidOutputDirectory: _androidOutputDirectory,
+            onProgress: (progress) {
+              // Android converts each file one-by-one, so we need to inject
+              // batch context here. That lets the UI compute both the current
+              // song progress and the overall batch progress correctly.
+              _handleBatchProgress(
+                progress.copyWith(
+                  completedFiles: index,
+                  totalFiles: inputPaths.length,
+                ),
+              );
+            },
           );
           results.add(result);
+          if (!mounted) return;
         }
         if (!mounted) return;
 
@@ -502,6 +513,16 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
           'Batch conversion completed: total=${results.length}, success=$successCount, failure=$failureCount',
         );
       } else {
+        final requests = _buildBatchRequests(
+          inputPaths: inputPaths,
+          outputFormat: selectedFormat,
+          outputDirectory: outputDirectory,
+          bitRate: bitRate,
+          bitRateMode: _bitRateMode,
+          aacEncoder: _aacEncoder,
+          ffmpegPath: ffmpegPath,
+          customArgs: customArgs,
+        );
         final results = await _converter.convertFiles(
           requests,
           onProgress: _handleBatchProgress,
