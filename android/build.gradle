@@ -59,6 +59,10 @@ def ffmpegReleaseBaseUrl = (System.getenv('AUDIO_CONVERTER_FFMPEG_RELEASE_BASE_U
         ?: 'https://github.com/axel10/audio_converter/releases/latest/download').replaceAll('/+$', '')
 def pluginRootDir = file('..')
 def androidJniLibsDir = new File(projectDir, 'src/main/jniLibs')
+def ffmpegAbis = (System.getenv('AUDIO_CONVERTER_ANDROID_ABIS') ?: 'arm64-v8a,armeabi-v7a')
+        .split(/[,\s]+/)
+        .collect { it.trim() }
+        .findAll { it }
 def ffmpegAssetNamesByAbi = [
         'arm64-v8a': 'audio_converter-ffmpeg-android-arm64-v8a.zip',
         'armeabi-v7a': 'audio_converter-ffmpeg-android-armeabi-v7a.zip',
@@ -74,7 +78,12 @@ def ffmpegMarkerFilesByAbi = [
 
 tasks.register('ensureFfmpegAssets') {
     doLast {
-        ffmpegMarkerFilesByAbi.each { abi, marker ->
+        ffmpegAbis.each { abi ->
+            def marker = ffmpegMarkerFilesByAbi[abi]
+            if (marker == null) {
+                throw new GradleException("Unsupported Android ABI for ffmpeg assets: ${abi}")
+            }
+
             if (!marker.exists()) {
                 def assetName = ffmpegAssetNamesByAbi[abi]
                 if (assetName == null) {
