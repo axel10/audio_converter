@@ -99,6 +99,38 @@ class ConvertRequest {
     );
   }
 
+  factory ConvertRequest.forOutputDirectory({
+    required String inputPath,
+    required String outputDirectory,
+    required AudioFormat outputFormat,
+    int? sampleRate,
+    int? channels,
+    int? bitRate,
+    BitRateMode? bitRateMode,
+    String? ffmpegPath,
+    AacEncoder? aacEncoder,
+    bool allowFallbackToFfmpeg = true,
+    Map<String, String>? extraOptions,
+    List<String>? customArgs,
+  }) {
+    final baseName = p.basenameWithoutExtension(inputPath);
+
+    return ConvertRequest(
+      inputPath: inputPath,
+      outputPath: p.join(outputDirectory, '$baseName.${outputFormat.value}'),
+      outputFormat: outputFormat,
+      sampleRate: sampleRate,
+      channels: channels,
+      bitRate: bitRate,
+      bitRateMode: bitRateMode,
+      ffmpegPath: ffmpegPath,
+      aacEncoder: aacEncoder,
+      allowFallbackToFfmpeg: allowFallbackToFfmpeg,
+      extraOptions: extraOptions,
+      customArgs: customArgs,
+    );
+  }
+
   Map<String, Object?> toMap() {
     return <String, Object?>{
       'inputPath': inputPath,

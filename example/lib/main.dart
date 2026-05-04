@@ -53,7 +53,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   String? _inputPath;
   String? _outputDirectory;
   String? _outputPath;
-  String? _savedOutputPath;
   ConvertResult? _lastResult;
   final List<String> _logEntries = <String>[];
   String _status = 'Ready.';
@@ -182,7 +181,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
     setState(() {
       _inputPath = filePath;
-      _savedOutputPath = null;
       _status = 'Input file selected.';
       _refreshOutputPreview();
     });
@@ -190,10 +188,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   }
 
   Future<void> _pickOutputDirectory() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      return;
-    }
-
     _log('Opening output directory picker...');
     final directory = await _converter.pickOutputDirectory();
     if (directory == null || !mounted) {
@@ -204,7 +198,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     setState(() {
       _outputDirectory = directory;
       _outputPath = null;
-      _savedOutputPath = null;
       _status = 'Output directory selected.';
       _refreshOutputPreview();
     });
@@ -220,14 +213,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     }
 
     final baseName = p.basenameWithoutExtension(inputPath);
-    if (Platform.isAndroid || Platform.isIOS) {
-      final tempDir = Directory(
-        p.join(Directory.systemTemp.path, 'audio_converter'),
-      );
-      _outputPath = p.join(tempDir.path, '$baseName.${selectedFormat.value}');
-      return;
-    }
-
     final outputDirectory = _outputDirectory;
     if (outputDirectory == null) {
       _outputPath = null;
@@ -238,10 +223,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
   }
 
   String? get _previewOutputPath {
-    if (Platform.isAndroid || Platform.isIOS) {
-      return _savedOutputPath ?? _outputPath;
-    }
-
     final inputPath = _inputPath;
     final outputDirectory = _outputDirectory;
     final selectedFormat = _selectedFormat;
@@ -261,7 +242,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     }
     setState(() {
       _selectedFormat = value;
-      _savedOutputPath = null;
       _refreshOutputPreview();
     });
   }
@@ -354,7 +334,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     final selectedFormat = _selectedFormat;
     if (inputPath == null || selectedFormat == null) {
       setState(() {
-        _status = 'Please pick an input file first.';
+        _status = 'Please pick an input file and output directory first.';
       });
       _log(
         'Conversion blocked because input file or output format is missing.',
@@ -362,13 +342,15 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       return;
     }
 
-    if (!Platform.isAndroid && !Platform.isIOS && _outputDirectory == null) {
+    if (_outputDirectory == null) {
       setState(() {
         _status = 'Please pick an output directory first.';
       });
       _log('Conversion blocked because output directory is missing.');
       return;
     }
+
+    _refreshOutputPreview();
 
     final outputPath = _outputPath;
     if (outputPath == null) {
@@ -379,7 +361,6 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
       return;
     }
 
-    final baseName = p.basenameWithoutExtension(inputPath);
     final bitRate = int.tryParse(_bitRateController.text.trim());
     final customArgs = (Platform.isWindows || Platform.isLinux)
         ? _parseCustomArgs(_customArgsController.text.trim())
@@ -403,9 +384,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
 
     setState(() {
       _isConverting = true;
-      _status = Platform.isAndroid || Platform.isIOS
-          ? 'Converting and opening the system save dialog...'
-          : 'Converting...';
+      _status = 'Converting...';
     });
     final conversionLog = Platform.isIOS || Platform.isMacOS
         ? 'Starting conversion: input=$inputPath, output=$outputPath, format=${selectedFormat.value}, bitRate=$bitRate, bitRateMode=${_bitRateMode.value}, engine=rust-ffmpeg+Apple encoder for m4a'
@@ -413,16 +392,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
     _log(conversionLog);
 
     try {
-      final managedResult = Platform.isAndroid || Platform.isIOS
-          ? await _converter.convertAndSave(
-              request,
-              suggestedFileName: '$baseName.${selectedFormat.value}',
-            )
-          : ConvertAndSaveResult(
-              conversionResult: await _converter.convertFile(request),
-              savedPath: request.outputPath,
-            );
-      final result = managedResult.conversionResult;
+      final result = await _converter.convertFile(request);
       if (!mounted) return;
       _log(
         'Conversion completed: success=${result.success}, engine=${result.engine}, outputPath=${result.outputPath}, errorCode=${result.errorCode}, errorMessage=${result.errorMessage}',
@@ -432,51 +402,16 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
         setState(() {
           _isConverting = false;
           _lastResult = result;
-          _status = managedResult.saveCancelled
-              ? 'Conversion finished, but the save dialog was cancelled.'
-              : 'Conversion failed. Check the log below for details.';
+          _status = 'Conversion failed. Check the log below for details.';
         });
-        return;
-      }
-
-      if (Platform.isAndroid || Platform.isIOS) {
-        setState(() {
-          _isConverting = false;
-          _lastResult = result;
-          if (managedResult.savedPath == null) {
-            _savedOutputPath = null;
-            _outputPath = null;
-            _status = Platform.isAndroid
-                ? 'Conversion finished, but the SAF save dialog was cancelled.'
-                : 'Conversion finished, but the save dialog was cancelled.';
-          } else {
-            _savedOutputPath = managedResult.savedPath;
-            _outputPath = managedResult.outputPath;
-            _status = Platform.isAndroid
-                ? 'Converted successfully and saved via SAF.'
-                : 'Converted successfully and saved.';
-          }
-        });
-        if (managedResult.savedPath == null) {
-          _log(
-            Platform.isAndroid
-                ? 'SAF save dialog was cancelled.'
-                : 'iOS save dialog was cancelled.',
-          );
-        } else {
-          _log(
-            Platform.isAndroid
-                ? 'Converted file saved via SAF: ${managedResult.savedPath}'
-                : 'Converted file saved via iOS save dialog: ${managedResult.savedPath}',
-          );
-        }
         return;
       }
 
       setState(() {
         _isConverting = false;
         _lastResult = result;
-        _status = 'Converted successfully with ${result.engine}.';
+        _outputPath = result.outputPath;
+        _status = 'Converted successfully.';
       });
       _log('Conversion succeeded with engine=${result.engine}.');
     } catch (error, stackTrace) {
@@ -512,35 +447,21 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
                   icon: const Icon(Icons.audio_file),
                   label: const Text('Choose input file'),
                 ),
-                if (!Platform.isAndroid && !Platform.isIOS)
-                  FilledButton.icon(
-                    onPressed: _pickOutputDirectory,
-                    icon: const Icon(Icons.folder_open),
-                    label: const Text('Choose output directory'),
-                  ),
+                FilledButton.icon(
+                  onPressed: _pickOutputDirectory,
+                  icon: const Icon(Icons.folder_open),
+                  label: const Text('Choose output directory'),
+                ),
               ],
             ),
             const SizedBox(height: 12),
             SelectableText('Input: ${_inputPath ?? 'Not selected'}'),
             const SizedBox(height: 4),
             SelectableText(
-              Platform.isAndroid
-                  ? 'Android and iOS save handling is managed by the plugin.'
-                  : Platform.isIOS
-                  ? 'iOS save handling is managed by the plugin.'
-                  : 'Output directory: ${_outputDirectory ?? 'Not selected'}',
+              'Output directory: ${_outputDirectory ?? 'Not selected'}',
             ),
             const SizedBox(height: 4),
-            SelectableText(
-              Platform.isAndroid || Platform.isIOS
-                  ? 'Temporary output: ${_outputPath ?? 'Not ready'}'
-                  : 'Output file: ${_previewOutputPath ?? 'Not ready'}',
-            ),
-            if ((Platform.isAndroid || Platform.isIOS) &&
-                _savedOutputPath != null) ...[
-              const SizedBox(height: 4),
-              SelectableText('Saved output: $_savedOutputPath'),
-            ],
+            SelectableText('Output file: ${_previewOutputPath ?? 'Not ready'}'),
           ],
         ),
       ),
@@ -705,7 +626,7 @@ class _AudioConverterDemoPageState extends State<AudioConverterDemoPage> {
             const SizedBox(height: 8),
             const Text(
               'Android does not request broad storage permission here. '
-              'The plugin handles the input picker and the save dialog internally.',
+              'The plugin handles the input picker and output directory selection internally.',
             ),
           ],
         ),
