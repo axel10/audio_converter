@@ -18,11 +18,6 @@ apply_cargokit(${PROJECT_NAME} ../rust audio_converter "")
 set(audio_converter_bundled_libraries
   "${${PROJECT_NAME}_cargokit_lib}"
 )
-file(GLOB _ffmpeg_shared_libraries CONFIGURE_DEPENDS
-  "D:/vcpkg/installed/x64-windows/bin/*.dll")
-if(_ffmpeg_shared_libraries)
-  list(APPEND audio_converter_bundled_libraries ${_ffmpeg_shared_libraries})
-endif()
 if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
   set(audio_converter_bundled_libraries "${audio_converter_bundled_libraries}" PARENT_SCOPE)
 endif()

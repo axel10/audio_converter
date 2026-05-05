@@ -27,18 +27,31 @@ class DesktopAudioConverter {
       return Future<void>.value();
     }
 
-    _rustInitFuture ??= RustLib.init(
-      forceSameCodegenVersion: false,
-      externalLibrary: _usesProcessLoadedRust
-          ? ExternalLibrary.process(
-              iKnowHowToUseIt: true,
-              debugInfo: Platform.isIOS
-                  ? 'for iOS Runner.debug.dylib'
-                  : 'for macOS Runner.debug.dylib',
-            )
-          : null,
-    );
+    _rustInitFuture ??= _initRust();
     return _rustInitFuture!;
+  }
+
+  Future<void> _initRust() async {
+    try {
+      await RustLib.init(
+        forceSameCodegenVersion: false,
+        externalLibrary: _usesProcessLoadedRust
+            ? ExternalLibrary.process(
+                iKnowHowToUseIt: true,
+                debugInfo: Platform.isIOS
+                    ? 'for iOS Runner.debug.dylib'
+                    : 'for macOS Runner.debug.dylib',
+              )
+            : null,
+      );
+    } catch (error) {
+      _rustInitFuture = null;
+      throw StateError(
+        'FFmpeg runtime libraries are missing or could not be loaded. '
+        'Please add the audio_ffmpeg_lib dependency and make sure its ffmpeg '
+        'assets have been built or downloaded. Original error: $error',
+      );
+    }
   }
 
   Future<ConvertResult> convertFile(

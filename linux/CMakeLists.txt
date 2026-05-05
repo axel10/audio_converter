@@ -11,12 +11,6 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 # This list could contain prebuilt libraries, or libraries created by an
 # external build triggered from this build file.
 set(audio_converter_bundled_libraries "")
-file(GLOB _ffmpeg_shared_libraries CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/../build/ffmpeg-linux/install/lib/*.so"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../build/ffmpeg-linux/install/lib/*.so.*")
-if(_ffmpeg_shared_libraries)
-  list(APPEND audio_converter_bundled_libraries ${_ffmpeg_shared_libraries})
-endif()
 if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
   set(audio_converter_bundled_libraries "${audio_converter_bundled_libraries}" PARENT_SCOPE)
 endif()

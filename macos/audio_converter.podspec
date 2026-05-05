@@ -5,8 +5,8 @@
 Pod::Spec.new do |s|
   # Use the pod source root so the path resolves inside the plugin package,
   # not the host app's macos/ directory.
-  ffmpeg_lib_arm64 = '$(PODS_ROOT)/../Flutter/ephemeral/.symlinks/plugins/audio_converter/macos/ffmpeg_lib/arm64/lib'
-  ffmpeg_lib_x86_64 = '$(PODS_ROOT)/../Flutter/ephemeral/.symlinks/plugins/audio_converter/macos/ffmpeg_lib/amd64/lib'
+  ffmpeg_lib_arm64 = '$(PODS_ROOT)/../Flutter/ephemeral/.symlinks/plugins/audio_ffmpeg_lib/macos/ffmpeg_lib/arm64/lib'
+  ffmpeg_lib_x86_64 = '$(PODS_ROOT)/../Flutter/ephemeral/.symlinks/plugins/audio_ffmpeg_lib/macos/ffmpeg_lib/amd64/lib'
 
   s.name             = 'audio_converter'
   s.version          = '0.0.1'
@@ -32,7 +32,7 @@ A new Flutter FFI plugin project.
 
   s.script_phase = {
     :name => 'Build Rust library',
-    :script => 'bash "$PODS_TARGET_SRCROOT/../tooling/ensure_ffmpeg_assets.sh" macos $ARCHS && sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust audio_converter',
+    :script => 'bash "$PODS_TARGET_SRCROOT/../../audio_ffmpeg_lib/tooling/ensure_ffmpeg_assets.sh" macos $ARCHS && sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust audio_converter',
     :execution_position => :before_compile,
     :input_files => ['${BUILT_PRODUCTS_DIR}/cargokit_phony'],
     :output_files => ["${PODS_CONFIGURATION_BUILD_DIR}/audio_converter/libaudio_converter.a"],

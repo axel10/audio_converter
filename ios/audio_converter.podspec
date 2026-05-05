@@ -3,8 +3,8 @@
 # Run `pod lib lint audio_converter.podspec` to validate before publishing.
 #
 Pod::Spec.new do |s|
-  ffmpeg_lib_ios = '$(PROJECT_DIR)/../../ios/ffmpeg_lib/arm64/lib'
-  ffmpeg_lib_sim = '$(PROJECT_DIR)/../../ios/ffmpeg_lib/arm64-sim/lib'
+  ffmpeg_lib_ios = '$(PODS_ROOT)/../Flutter/ephemeral/.symlinks/plugins/audio_ffmpeg_lib/ios/ffmpeg_lib/arm64/lib'
+  ffmpeg_lib_sim = '$(PODS_ROOT)/../Flutter/ephemeral/.symlinks/plugins/audio_ffmpeg_lib/ios/ffmpeg_lib/arm64-sim/lib'
 
   s.name             = 'audio_converter'
   s.version          = '0.0.1'
@@ -32,7 +32,7 @@ A new Flutter FFI plugin project.
   s.script_phase = {
     :name => 'Build Rust library',
     # First argument is relative path to the `rust` folder, second is name of rust library
-    :script => 'bash "$PODS_TARGET_SRCROOT/../tooling/ensure_ffmpeg_assets.sh" ios $ARCHS && sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust audio_converter',
+    :script => 'bash "$PODS_TARGET_SRCROOT/../../audio_ffmpeg_lib/tooling/ensure_ffmpeg_assets.sh" ios $ARCHS && sh "$PODS_TARGET_SRCROOT/../cargokit/build_pod.sh" ../rust audio_converter',
     :execution_position => :before_compile,
     :input_files => ['${BUILT_PRODUCTS_DIR}/cargokit_phony'],
     # Let XCode know that the static library referenced in -force_load below is
