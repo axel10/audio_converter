@@ -1,6 +1,6 @@
 use ffmpeg::util::mathematics::{rescale::TIME_BASE, Rescale};
 use ffmpeg::{codec, filter, format, frame, media, Dictionary};
-use ffmpeg_next as ffmpeg;
+use ffmpeg_core::ffmpeg;
 
 use super::common::ensure_ffmpeg_initialized;
 use super::debug::{

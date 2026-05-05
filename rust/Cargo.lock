@@ -70,7 +70,7 @@ checksum = "c59bdb34bc650a32731b31bd8f0829cc15d24a708ee31559e0bb34f2bc320cba"
 name = "audio_converter"
 version = "0.1.0"
 dependencies = [
- "ffmpeg-next",
+ "ffmpeg_core",
  "flutter_rust_bridge",
  "serde",
  "serde_json",
@@ -290,6 +290,13 @@ dependencies = [
  "num_cpus",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "ffmpeg_core"
+version = "0.1.0"
+dependencies = [
+ "ffmpeg-next",
 ]
 
 [[package]]

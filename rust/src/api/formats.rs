@@ -1,5 +1,5 @@
 use ffmpeg::codec::codec::Codec as FfmpegCodec;
-use ffmpeg_next as ffmpeg;
+use ffmpeg_core::ffmpeg;
 
 use super::models::AndroidConvertRequest;
 

@@ -1,5 +1,5 @@
 use ffmpeg::{codec, frame};
-use ffmpeg_next as ffmpeg;
+use ffmpeg_core::ffmpeg;
 
 const DEBUG_PACKET_LIMIT: usize = 6;
 const DEBUG_FRAME_LIMIT: usize = 6;
