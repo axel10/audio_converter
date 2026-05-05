@@ -1,9 +1,7 @@
 use flutter_rust_bridge::frb;
 use serde_json;
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 use super::apple;
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 use super::formats::{
     capabilities_notes, supported_output_formats, unsupported_output_format_error,
 };
@@ -11,16 +9,13 @@ use super::models::{
     emit_conversion_event, failure_result, AndroidConvertRequest, AndroidConvertResult,
     AndroidConverterCapabilities, ConversionEvent, ConversionFailure,
 };
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 use super::transcoder::transcode_direct;
 use crate::frb_generated::StreamSink;
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, ConversionFailure> {
     transcode_impl(request, None)
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 fn transcode_impl(
     request: &AndroidConvertRequest,
     progress_sink: Option<&StreamSink<String>>,
@@ -34,26 +29,6 @@ fn transcode_impl(
     }
 
     transcode_direct(request, progress_sink)
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
-fn transcode(request: &AndroidConvertRequest) -> Result<AndroidConvertResult, ConversionFailure> {
-    let _ = request;
-    Err(ConversionFailure::new(
-        "Rust FFmpeg backend is disabled on Windows and Linux. Use the Dart ffmpeg fallback instead.",
-    ))
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
-fn transcode_impl(
-    request: &AndroidConvertRequest,
-    progress_sink: Option<&StreamSink<String>>,
-) -> Result<AndroidConvertResult, ConversionFailure> {
-    let _ = request;
-    let _ = progress_sink;
-    Err(ConversionFailure::new(
-        "Rust FFmpeg backend is disabled on Windows and Linux. Use the Dart ffmpeg fallback instead.",
-    ))
 }
 
 #[frb(sync)]
@@ -136,7 +111,6 @@ pub fn convert_file_with_progress(request_json: String, progress_sink: StreamSin
 
 #[frb(sync)]
 pub fn get_capabilities() -> String {
-    #[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
     let capabilities = AndroidConverterCapabilities {
         engine: "rust-ffmpeg".to_string(),
         supported_output_formats: supported_output_formats(),
@@ -144,19 +118,6 @@ pub fn get_capabilities() -> String {
         supports_cancellation: false,
         requires_external_binary: false,
         notes: Some(capabilities_notes()),
-    };
-
-    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
-    let capabilities = AndroidConverterCapabilities {
-        engine: "unsupported".to_string(),
-        supported_output_formats: Vec::new(),
-        supports_progress: false,
-        supports_cancellation: false,
-        requires_external_binary: false,
-        notes: Some(
-            "Rust FFmpeg backend is disabled on Windows and Linux. The Dart layer uses the system ffmpeg binary instead."
-                .to_string(),
-        ),
     };
 
     serde_json::to_string(&capabilities).unwrap()
@@ -167,23 +128,6 @@ pub fn init_app() {
     flutter_rust_bridge::setup_default_user_utils();
 }
 
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
-fn invalid_request_result(error_message: String) -> AndroidConvertResult {
-    AndroidConvertResult {
-        success: false,
-        command: None,
-        output_path: None,
-        engine: Some("unsupported".to_string()),
-        output_format: None,
-        error_code: Some("invalid_request".to_string()),
-        error_message: Some(error_message),
-        stdout: None,
-        stderr: None,
-        raw_log: None,
-    }
-}
-
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 fn invalid_request_result(error_message: String) -> AndroidConvertResult {
     AndroidConvertResult {
         success: false,

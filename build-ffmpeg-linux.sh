@@ -96,17 +96,6 @@ if ! pkg-config --exists libmp3lame && ! pkg-config --exists lame; then
   exit 1
 fi
 need_pkg_config_pkg fdk-aac
-if ! pkg-config --exists libmpg123; then
-  log "Warning: libmpg123 not found via pkg-config. Some static builds of libmp3lame might need it."
-fi
-
-# We will check if we need to add -lmpg123 or -lm manually for static linking
-extra_libs="-lm"
-if find /usr /usr/local -name 'libmpg123.a' -print -quit 2>/dev/null | grep -q .; then
-  extra_libs="$extra_libs -lmpg123"
-else
-  log "Note: libmpg123.a not found. If linking fails, you may need to install it or use a version of lame that doesn't depend on it."
-fi
 
 if $clean && [[ -e "$build_root" ]]; then
   rm -rf "$build_root"
@@ -125,15 +114,15 @@ fi
 
 configure_args=(
   --prefix="$install_root"
-  --pkg-config-flags="--static"
-  --extra-ldflags="-static -L/usr/local/lib"
-  --extra-libs="$extra_libs"
+  --enable-shared
+  --disable-static
   --disable-everything
   --disable-autodetect
   --disable-debug
   --disable-doc
+  --disable-ffmpeg
+  --disable-ffprobe
   --disable-ffplay
-  --enable-ffprobe
   --disable-avdevice
   --disable-filters
   --enable-filter=aresample

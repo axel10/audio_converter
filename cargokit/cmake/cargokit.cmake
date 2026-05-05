@@ -45,6 +45,12 @@ function(apply_cargokit target manifest_dir lib_name any_symbol_name)
     )
 
     if (WIN32)
+        list(APPEND CARGOKIT_ENV
+            "VCPKG_ROOT=D:\\vcpkg"
+            "VCPKGRS_DYNAMIC=1"
+            "VCPKG_TARGET_TRIPLET=x64-windows"
+            "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin"
+        )
         set(SCRIPT_EXTENSION ".cmd")
         set(IMPORT_LIB_EXTENSION ".lib")
     else()

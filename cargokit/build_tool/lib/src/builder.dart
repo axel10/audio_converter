@@ -179,6 +179,19 @@ class RustBuilder {
 
   Future<Map<String, String>> _buildEnvironment() async {
     if (target.android == null && target.darwinPlatform == null) {
+      if (target.flutter == 'windows-x64') {
+        return {};
+      }
+      if (target.flutter == 'linux-x64') {
+        return {
+          'FFMPEG_DIR': _desktopFfmpegDir('linux'),
+          'PKG_CONFIG_PATH': path.join(
+            _desktopFfmpegDir('linux'),
+            'lib',
+            'pkgconfig',
+          ),
+        };
+      }
       return {};
     }
 
@@ -247,6 +260,16 @@ class RustBuilder {
     }
     throw BuildException(
         'Unsupported darwin platform ${target.darwinPlatform}');
+  }
+
+  String _desktopFfmpegDir(String platformName) {
+    final manifestRoot = path.dirname(environment.manifestDir);
+    return switch (platformName) {
+      'windows' =>
+        path.join(manifestRoot, 'build', 'ffmpeg-windows', 'install'),
+      'linux' => path.join(manifestRoot, 'build', 'ffmpeg-linux', 'install'),
+      _ => throw BuildException('Unsupported desktop platform $platformName'),
+    };
   }
 
   String _darwinSdkRoot(String platformName) {
